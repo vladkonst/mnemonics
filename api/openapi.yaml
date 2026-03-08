@@ -1,0 +1,2090 @@
+openapi: "3.0.3"
+info:
+  title: Mnemonics Backend API
+  description: |
+    Backend API for the anatomy exam preparation system.
+    Delivers educational content (mnemonics, tests) via Telegram bot with
+    personalized progress tracking and flexible subscription models.
+  version: "1.0.0"
+  contact:
+    name: Mnemonics Team
+    url: https://github.com/vladkonst/mnemonics
+
+servers:
+  - url: http://localhost:8080
+    description: Local development
+
+tags:
+  - name: users
+    description: User registration and management
+  - name: content
+    description: Modules, themes, mnemonics, study sessions, tests
+  - name: progress
+    description: User progress tracking
+  - name: subscriptions
+    description: Subscriptions and promo codes
+  - name: payments
+    description: Payment invoices and webhooks
+  - name: teachers
+    description: Teacher functionality
+  - name: admin
+    description: Administrative operations
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Security Schemes
+# ─────────────────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    TelegramAuth:
+      type: apiKey
+      in: header
+      name: X-Telegram-User-Id
+      description: Telegram user ID (integer > 0)
+    AdminAuth:
+      type: apiKey
+      in: header
+      name: X-Admin-Token
+      description: Admin secret token from environment
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Reusable Schemas
+  # ───────────────────────────────────────────────────────────────────────────
+  schemas:
+    # ── Error ────────────────────────────────────────────────────────────────
+    Error:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+          example: user_not_found
+        message:
+          type: string
+          example: User with specified ID not found
+        details:
+          type: object
+          additionalProperties: true
+
+    # ── User ─────────────────────────────────────────────────────────────────
+    User:
+      type: object
+      required: [telegram_id, role, subscription_status, created_at]
+      properties:
+        telegram_id:
+          type: integer
+          format: int64
+          example: 123456789
+        first_name:
+          type: string
+          example: Иван
+        last_name:
+          type: string
+          example: Иванов
+        username:
+          type: string
+          example: ivan_ivanov
+        role:
+          $ref: "#/components/schemas/UserRole"
+        subscription_status:
+          $ref: "#/components/schemas/SubscriptionStatus"
+        university_code:
+          type: string
+          nullable: true
+          example: MGU
+        language:
+          type: string
+          example: ru
+        notifications_enabled:
+          type: boolean
+          example: true
+        last_activity_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    UserRole:
+      type: string
+      enum: [student, teacher]
+
+    SubscriptionStatus:
+      type: string
+      enum: [active, inactive, expired]
+
+    # ── Module ───────────────────────────────────────────────────────────────
+    Module:
+      type: object
+      required: [id, name, order_num]
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Анатомия костей
+        description:
+          type: string
+          nullable: true
+          example: Изучение костной системы человека
+        order_num:
+          type: integer
+          example: 1
+        is_locked:
+          type: boolean
+          example: false
+        icon_emoji:
+          type: string
+          nullable: true
+          example: "🦴"
+        created_at:
+          type: string
+          format: date-time
+
+    ModuleWithProgress:
+      allOf:
+        - $ref: "#/components/schemas/Module"
+        - type: object
+          properties:
+            total_themes:
+              type: integer
+              example: 10
+            completed_themes:
+              type: integer
+              example: 3
+            is_accessible:
+              type: boolean
+              example: true
+
+    # ── Theme ─────────────────────────────────────────────────────────────────
+    Theme:
+      type: object
+      required: [id, module_id, name, order_num, is_introduction]
+      properties:
+        id:
+          type: integer
+          example: 1
+        module_id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Введение
+        description:
+          type: string
+          nullable: true
+        order_num:
+          type: integer
+          example: 1
+        is_introduction:
+          type: boolean
+          example: true
+        is_locked:
+          type: boolean
+          example: false
+        estimated_time_minutes:
+          type: integer
+          nullable: true
+          example: 15
+        created_at:
+          type: string
+          format: date-time
+
+    ThemeWithAccess:
+      type: object
+      required: [id, name, order_num, is_introduction, is_accessible, is_completed]
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Введение
+        order_num:
+          type: integer
+          example: 1
+        is_introduction:
+          type: boolean
+          example: true
+        is_accessible:
+          type: boolean
+          example: true
+        is_completed:
+          type: boolean
+          example: false
+        score:
+          type: integer
+          nullable: true
+          example: 85
+        locked_reason:
+          type: string
+          nullable: true
+          example: "Пройдите тему 'Позвоночник'"
+
+    # ── Mnemonic ──────────────────────────────────────────────────────────────
+    Mnemonic:
+      type: object
+      required: [id, theme_id, type, order_num]
+      properties:
+        id:
+          type: integer
+          example: 1
+        theme_id:
+          type: integer
+          example: 1
+        type:
+          type: string
+          enum: [text, image]
+        content_text:
+          type: string
+          nullable: true
+          example: Мнемоника для запоминания...
+        s3_image_url:
+          type: string
+          nullable: true
+          example: "https://s3.amazonaws.com/mnemo/images/spine_01.jpg"
+        order_num:
+          type: integer
+          example: 1
+
+    # ── Question & Test ───────────────────────────────────────────────────────
+    Question:
+      type: object
+      required: [id, question, type, options, order_num]
+      properties:
+        id:
+          type: integer
+          example: 1
+        question:
+          type: string
+          example: Сколько позвонков в шейном отделе?
+        type:
+          type: string
+          enum: [multiple_choice, true_false]
+        options:
+          type: array
+          items:
+            type: string
+          example: ["5", "7", "9", "12"]
+        order_num:
+          type: integer
+          example: 1
+
+    Test:
+      type: object
+      required: [id, theme_id, difficulty, passing_score, questions]
+      properties:
+        id:
+          type: integer
+          example: 5
+        theme_id:
+          type: integer
+          example: 2
+        difficulty:
+          type: integer
+          minimum: 1
+          maximum: 5
+          example: 3
+        passing_score:
+          type: integer
+          minimum: 0
+          maximum: 100
+          example: 70
+        questions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Question"
+
+    # ── Test Attempt ──────────────────────────────────────────────────────────
+    TestAttempt:
+      type: object
+      required: [attempt_id, test, attempt_number, started_at]
+      properties:
+        attempt_id:
+          type: string
+          example: uuid-test-attempt-456
+        test:
+          $ref: "#/components/schemas/Test"
+        attempt_number:
+          type: integer
+          example: 1
+        started_at:
+          type: string
+          format: date-time
+
+    AnswerItem:
+      type: object
+      required: [question_id, answer]
+      properties:
+        question_id:
+          type: integer
+          example: 1
+        answer:
+          type: string
+          example: "7"
+
+    TestResult:
+      type: object
+      required: [score, passing_score, passed, correct_answers, total_questions, attempt_number]
+      properties:
+        score:
+          type: integer
+          example: 85
+        passing_score:
+          type: integer
+          example: 70
+        passed:
+          type: boolean
+          example: true
+        correct_answers:
+          type: integer
+          example: 17
+        total_questions:
+          type: integer
+          example: 20
+        attempt_number:
+          type: integer
+          example: 1
+
+    NextAction:
+      type: object
+      required: [type]
+      properties:
+        type:
+          type: string
+          enum: [next_theme, retry_test, module_completed, all_completed]
+        theme_id:
+          type: integer
+          nullable: true
+          example: 3
+        theme_name:
+          type: string
+          nullable: true
+          example: Грудная клетка
+        is_introduction:
+          type: boolean
+          nullable: true
+        message:
+          type: string
+          nullable: true
+
+    # ── Subscription ──────────────────────────────────────────────────────────
+    Subscription:
+      type: object
+      required: [has_subscription]
+      properties:
+        has_subscription:
+          type: boolean
+        type:
+          type: string
+          enum: [personal, university]
+          nullable: true
+        status:
+          type: string
+          enum: [active, expired, cancelled]
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        plan:
+          type: string
+          nullable: true
+          example: monthly
+        university_name:
+          type: string
+          nullable: true
+          example: МГУ
+        teacher_name:
+          type: string
+          nullable: true
+
+    # ── PromoCode ─────────────────────────────────────────────────────────────
+    PromoCode:
+      type: object
+      required: [code, university_name, max_activations, remaining, status]
+      properties:
+        code:
+          type: string
+          example: ABC123
+        university_name:
+          type: string
+          example: МГУ
+        max_activations:
+          type: integer
+          example: 50
+        remaining:
+          type: integer
+          example: 35
+        used:
+          type: integer
+          example: 15
+        status:
+          type: string
+          enum: [pending, active, expired, deactivated]
+        activated_at:
+          type: string
+          format: date-time
+          nullable: true
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+
+    # ── Payment Invoice ───────────────────────────────────────────────────────
+    PaymentInvoice:
+      type: object
+      required: [invoice_id, payment_url, amount, currency, plan, expires_at]
+      properties:
+        invoice_id:
+          type: string
+          example: inv_abc123xyz
+        payment_url:
+          type: string
+          example: "https://payment-gateway.com/checkout/inv_abc123xyz"
+        amount:
+          type: integer
+          example: 500
+        currency:
+          type: string
+          example: RUB
+        plan:
+          type: string
+          enum: [monthly, yearly]
+        expires_at:
+          type: string
+          format: date-time
+
+    # ── Progress ──────────────────────────────────────────────────────────────
+    ProgressStatus:
+      type: string
+      enum: [started, completed, failed]
+
+    ThemeProgress:
+      type: object
+      required: [theme_id, theme_name, is_introduction, status, attempts]
+      properties:
+        theme_id:
+          type: integer
+          example: 1
+        theme_name:
+          type: string
+          example: Введение
+        is_introduction:
+          type: boolean
+          example: true
+        status:
+          $ref: "#/components/schemas/ProgressStatus"
+        score:
+          type: integer
+          nullable: true
+          example: 85
+        attempts:
+          type: integer
+          example: 1
+        completed_at:
+          type: string
+          format: date-time
+          nullable: true
+
+    ModuleProgress:
+      type: object
+      required: [module_id, module_name, completion_percentage, themes]
+      properties:
+        module_id:
+          type: integer
+          example: 1
+        module_name:
+          type: string
+          example: Анатомия костей
+        completion_percentage:
+          type: integer
+          example: 30
+        themes:
+          type: array
+          items:
+            $ref: "#/components/schemas/ThemeProgress"
+
+    OverallProgress:
+      type: object
+      required: [total_modules, completed_modules, total_themes, completed_themes, completion_percentage]
+      properties:
+        total_modules:
+          type: integer
+          example: 5
+        completed_modules:
+          type: integer
+          example: 1
+        total_themes:
+          type: integer
+          example: 50
+        completed_themes:
+          type: integer
+          example: 12
+        completion_percentage:
+          type: integer
+          example: 24
+        average_score:
+          type: number
+          format: float
+          nullable: true
+          example: 82.5
+        total_attempts:
+          type: integer
+          example: 15
+        study_days:
+          type: integer
+          example: 7
+
+    RecentActivity:
+      type: object
+      required: [theme_id, theme_name, score, completed_at]
+      properties:
+        theme_id:
+          type: integer
+        theme_name:
+          type: string
+        score:
+          type: integer
+        completed_at:
+          type: string
+          format: date-time
+
+    # ── Teacher / Students ────────────────────────────────────────────────────
+    StudentProgress:
+      type: object
+      required: [total_themes, completed_themes, completion_percentage]
+      properties:
+        total_themes:
+          type: integer
+          example: 50
+        completed_themes:
+          type: integer
+          example: 12
+        completion_percentage:
+          type: integer
+          example: 24
+        average_score:
+          type: number
+          format: float
+          nullable: true
+          example: 82.5
+
+    StudentSummary:
+      type: object
+      required: [student_id, name, joined_at, progress]
+      properties:
+        student_id:
+          type: integer
+          format: int64
+          example: 123456789
+        name:
+          type: string
+          example: Иван Иванов
+        username:
+          type: string
+          nullable: true
+          example: ivan_ivanov
+        joined_at:
+          type: string
+          format: date-time
+        university_code:
+          type: string
+          nullable: true
+        progress:
+          $ref: "#/components/schemas/StudentProgress"
+        last_activity:
+          type: string
+          format: date-time
+          nullable: true
+
+    TopStudent:
+      type: object
+      required: [student_id, name, completion, avg_score]
+      properties:
+        student_id:
+          type: integer
+          format: int64
+        name:
+          type: string
+        completion:
+          type: integer
+        avg_score:
+          type: number
+          format: float
+
+    DifficultTheme:
+      type: object
+      required: [theme_id, theme_name, avg_score, attempts_avg]
+      properties:
+        theme_id:
+          type: integer
+        theme_name:
+          type: string
+        avg_score:
+          type: number
+          format: float
+        attempts_avg:
+          type: number
+          format: float
+
+    GroupStatistics:
+      type: object
+      required: [total_students, active_students, average_completion, average_score]
+      properties:
+        total_students:
+          type: integer
+          example: 15
+        active_students:
+          type: integer
+          example: 12
+        average_completion:
+          type: number
+          format: float
+          example: 35.5
+        average_score:
+          type: number
+          format: float
+          example: 78.2
+        top_students:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopStudent"
+        difficult_themes:
+          type: array
+          items:
+            $ref: "#/components/schemas/DifficultTheme"
+
+    # ── Admin ─────────────────────────────────────────────────────────────────
+    AdminUser:
+      type: object
+      required: [telegram_id, first_name, role, subscription_status, created_at]
+      properties:
+        telegram_id:
+          type: integer
+          format: int64
+          example: 123456789
+        first_name:
+          type: string
+        last_name:
+          type: string
+          nullable: true
+        username:
+          type: string
+          nullable: true
+        role:
+          $ref: "#/components/schemas/UserRole"
+        subscription_status:
+          $ref: "#/components/schemas/SubscriptionStatus"
+        university_code:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        last_activity:
+          type: string
+          format: date-time
+          nullable: true
+
+    TopModule:
+      type: object
+      required: [module_id, module_name, completions, avg_score]
+      properties:
+        module_id:
+          type: integer
+        module_name:
+          type: string
+        completions:
+          type: integer
+        avg_score:
+          type: number
+          format: float
+
+    SystemActivity:
+      type: object
+      required: [user_id, activity_type, theme_name, score, timestamp]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+        activity_type:
+          type: string
+        theme_name:
+          type: string
+        score:
+          type: integer
+        timestamp:
+          type: string
+          format: date-time
+
+    AnalyticsOverview:
+      type: object
+      required: [total_users, active_subscriptions, total_students, total_teachers,
+                 total_modules, total_themes, total_tests_completed, average_completion_rate, average_score]
+      properties:
+        total_users:
+          type: integer
+        active_subscriptions:
+          type: integer
+        total_students:
+          type: integer
+        total_teachers:
+          type: integer
+        total_modules:
+          type: integer
+        total_themes:
+          type: integer
+        total_tests_completed:
+          type: integer
+        average_completion_rate:
+          type: number
+          format: float
+        average_score:
+          type: number
+          format: float
+        top_modules:
+          type: array
+          items:
+            $ref: "#/components/schemas/TopModule"
+        recent_activity:
+          type: array
+          items:
+            $ref: "#/components/schemas/SystemActivity"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Reusable Responses
+  # ───────────────────────────────────────────────────────────────────────────
+  responses:
+    BadRequest:
+      description: Bad request — invalid parameters
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: Missing or invalid authentication header
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: Resource already exists or state conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    InternalError:
+      description: Internal server error
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  # ───────────────────────────────────────────────────────────────────────────
+  # Reusable Parameters
+  # ───────────────────────────────────────────────────────────────────────────
+  parameters:
+    UserIdPath:
+      name: user_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    TeacherIdPath:
+      name: teacher_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    StudentIdPath:
+      name: student_id
+      in: path
+      required: true
+      schema:
+        type: integer
+        format: int64
+    ModuleIdPath:
+      name: module_id
+      in: path
+      required: true
+      schema:
+        type: integer
+    ThemeIdPath:
+      name: theme_id
+      in: path
+      required: true
+      schema:
+        type: integer
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Paths
+# ─────────────────────────────────────────────────────────────────────────────
+paths:
+
+  # ── 1. User Management ──────────────────────────────────────────────────────
+  /api/v1/users:
+    post:
+      tags: [users]
+      operationId: registerUser
+      summary: Register a new user
+      description: Called on first bot start. Idempotent — returns 409 if user already exists.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [telegram_id, first_name]
+              properties:
+                telegram_id:
+                  type: integer
+                  format: int64
+                  example: 123456789
+                first_name:
+                  type: string
+                  example: Иван
+                last_name:
+                  type: string
+                  example: Иванов
+                username:
+                  type: string
+                  example: ivan_ivanov
+      responses:
+        "201":
+          description: User created
+          headers:
+            Location:
+              schema:
+                type: string
+              example: /api/v1/users/123456789
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, role, subscription_status, created_at]
+                properties:
+                  user_id:
+                    type: string
+                    example: "123456789"
+                  role:
+                    $ref: "#/components/schemas/UserRole"
+                  subscription_status:
+                    $ref: "#/components/schemas/SubscriptionStatus"
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/users/{user_id}:
+    patch:
+      tags: [users]
+      operationId: updateUser
+      summary: Update user role or settings
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                role:
+                  $ref: "#/components/schemas/UserRole"
+                language:
+                  type: string
+                  enum: [ru, en]
+                notifications_enabled:
+                  type: boolean
+      responses:
+        "200":
+          description: User updated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, role, language, updated_at]
+                properties:
+                  user_id:
+                    type: string
+                  role:
+                    $ref: "#/components/schemas/UserRole"
+                  language:
+                    type: string
+                  updated_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/subscription:
+    get:
+      tags: [users]
+      operationId: getUserSubscription
+      summary: Get user subscription info
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "200":
+          description: Subscription info
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Subscription"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── 2. Content ───────────────────────────────────────────────────────────────
+  /api/v1/content/modules:
+    get:
+      tags: [content]
+      operationId: getModules
+      summary: List all modules with user progress
+      security:
+        - TelegramAuth: []
+      parameters:
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: List of modules
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [modules]
+                properties:
+                  modules:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModuleWithProgress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/content/modules/{module_id}/themes:
+    get:
+      tags: [content]
+      operationId: getModuleThemes
+      summary: List themes of a module with access info
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ModuleIdPath"
+        - name: user_id
+          in: query
+          required: true
+          schema:
+            type: integer
+            format: int64
+      responses:
+        "200":
+          description: Module themes list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [module_id, module_name, themes]
+                properties:
+                  module_id:
+                    type: integer
+                  module_name:
+                    type: string
+                  themes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ThemeWithAccess"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/study-sessions:
+    post:
+      tags: [content]
+      operationId: createStudySession
+      summary: Start a study session for a theme (returns content)
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [theme_id]
+              properties:
+                theme_id:
+                  type: integer
+                  example: 2
+      responses:
+        "201":
+          description: Study session created with theme content
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [session_id, theme, test_available]
+                properties:
+                  session_id:
+                    type: string
+                    example: uuid-abc-123
+                  theme:
+                    type: object
+                    required: [id, name, is_introduction, mnemonics]
+                    properties:
+                      id:
+                        type: integer
+                      name:
+                        type: string
+                      description:
+                        type: string
+                        nullable: true
+                      is_introduction:
+                        type: boolean
+                      mnemonics:
+                        type: array
+                        items:
+                          $ref: "#/components/schemas/Mnemonic"
+                  test_available:
+                    type: boolean
+                  next_step:
+                    type: object
+                    nullable: true
+                    properties:
+                      type:
+                        type: string
+                      test_id:
+                        type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/test-attempts:
+    post:
+      tags: [content]
+      operationId: startTestAttempt
+      summary: Start a test attempt (returns questions)
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [theme_id]
+              properties:
+                theme_id:
+                  type: integer
+                  example: 2
+      responses:
+        "201":
+          description: Test attempt created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TestAttempt"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/test-attempts/{attempt_id}:
+    put:
+      tags: [content]
+      operationId: submitTestAttempt
+      summary: Submit test answers (idempotent)
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+        - name: attempt_id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [answers]
+              properties:
+                answers:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/AnswerItem"
+      responses:
+        "200":
+          description: Test result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [result]
+                properties:
+                  result:
+                    $ref: "#/components/schemas/TestResult"
+                  next_action:
+                    $ref: "#/components/schemas/NextAction"
+                  motivation_message:
+                    type: string
+                    nullable: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/users/{user_id}/theme/{theme_id}/access:
+    get:
+      tags: [content]
+      operationId: checkThemeAccess
+      summary: Check if user can access a specific theme
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+        - $ref: "#/components/parameters/ThemeIdPath"
+      responses:
+        "200":
+          description: Access check result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [accessible]
+                properties:
+                  accessible:
+                    type: boolean
+                  access_type:
+                    type: string
+                    enum: [subscription, sequential]
+                    nullable: true
+                  reason:
+                    type: string
+                    nullable: true
+                    example: previous_theme_required
+                  required_theme_id:
+                    type: integer
+                    nullable: true
+                  required_theme_name:
+                    type: string
+                    nullable: true
+                  required_action:
+                    type: string
+                    nullable: true
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── 3. Progress ───────────────────────────────────────────────────────────────
+  /api/v1/users/{user_id}/progress:
+    get:
+      tags: [progress]
+      operationId: getUserProgress
+      summary: Get overall user progress statistics
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "200":
+          description: User progress
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [user_id, overall_progress]
+                properties:
+                  user_id:
+                    type: integer
+                    format: int64
+                  overall_progress:
+                    $ref: "#/components/schemas/OverallProgress"
+                  recent_activity:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RecentActivity"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/progress/modules/{module_id}:
+    get:
+      tags: [progress]
+      operationId: getUserModuleProgress
+      summary: Get user progress for a specific module
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+        - $ref: "#/components/parameters/ModuleIdPath"
+      responses:
+        "200":
+          description: Module progress details
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ModuleProgress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── 4. Subscriptions & Promo Codes ───────────────────────────────────────────
+  /api/v1/teachers/{teacher_id}/promo-codes:
+    post:
+      tags: [subscriptions]
+      operationId: activatePromoCode
+      summary: Activate a promo code (teacher claims it)
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TeacherIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code]
+              properties:
+                code:
+                  type: string
+                  example: ABC123
+      responses:
+        "200":
+          description: Promo code activated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, university_name, remaining_activations, max_activations]
+                properties:
+                  code:
+                    type: string
+                  university_name:
+                    type: string
+                  remaining_activations:
+                    type: integer
+                  max_activations:
+                    type: integer
+                  expires_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+    get:
+      tags: [subscriptions]
+      operationId: getTeacherPromoCodes
+      summary: List teacher's promo codes
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TeacherIdPath"
+      responses:
+        "200":
+          description: List of promo codes
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [promo_codes, total]
+                properties:
+                  promo_codes:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/PromoCode"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/users/{user_id}/subscriptions:
+    post:
+      tags: [subscriptions]
+      operationId: createSubscription
+      summary: Create subscription (promo code join or payment confirmation)
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                promo_code:
+                  type: string
+                  description: For university subscription via promo code
+                  example: ABC123
+                payment_id:
+                  type: string
+                  description: For personal subscription after payment
+                  example: pay_abc123xyz
+                plan:
+                  type: string
+                  enum: [monthly, yearly]
+                  description: Required when using payment_id
+      responses:
+        "201":
+          description: Subscription created
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [subscription_id, type, status]
+                properties:
+                  subscription_id:
+                    type: string
+                  type:
+                    type: string
+                    enum: [personal, university]
+                  status:
+                    type: string
+                    enum: [active]
+                  plan:
+                    type: string
+                    nullable: true
+                  expires_at:
+                    type: string
+                    format: date-time
+                    nullable: true
+                  university_name:
+                    type: string
+                    nullable: true
+                  teacher_name:
+                    type: string
+                    nullable: true
+                  message:
+                    type: string
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  # ── 5. Payments ───────────────────────────────────────────────────────────────
+  /api/v1/users/{user_id}/payment-invoices:
+    post:
+      tags: [payments]
+      operationId: createPaymentInvoice
+      summary: Create a payment invoice for personal subscription
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [plan]
+              properties:
+                plan:
+                  type: string
+                  enum: [monthly, yearly]
+      responses:
+        "201":
+          description: Invoice created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PaymentInvoice"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "500":
+          $ref: "#/components/responses/InternalError"
+
+  /api/v1/users/{user_id}/payment-invoices/pending:
+    get:
+      tags: [payments]
+      operationId: getPendingInvoice
+      summary: Get pending payment invoice status
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/UserIdPath"
+      responses:
+        "200":
+          description: Pending invoice found
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [invoice_id, status, amount, created_at]
+                properties:
+                  invoice_id:
+                    type: string
+                  status:
+                    type: string
+                    enum: [pending, success, failed]
+                  payment_url:
+                    type: string
+                    nullable: true
+                  amount:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/webhooks/payment-gateway:
+    post:
+      tags: [payments]
+      operationId: handlePaymentWebhook
+      summary: Handle payment gateway webhook
+      description: Always returns 200 OK for idempotency. Verifies webhook signature.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [payment_id, status, user_id, amount, currency, signature]
+              properties:
+                payment_id:
+                  type: string
+                status:
+                  type: string
+                  enum: [success, failed, pending]
+                user_id:
+                  type: integer
+                  format: int64
+                amount:
+                  type: integer
+                currency:
+                  type: string
+                metadata:
+                  type: object
+                  properties:
+                    plan:
+                      type: string
+                signature:
+                  type: string
+      responses:
+        "200":
+          description: Webhook received (always 200)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [received]
+                properties:
+                  received:
+                    type: boolean
+                    example: true
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  # ── 6. Teacher Features ───────────────────────────────────────────────────────
+  /api/v1/teachers/{teacher_id}/students:
+    get:
+      tags: [teachers]
+      operationId: getTeacherStudents
+      summary: List teacher's students with progress summary
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TeacherIdPath"
+      responses:
+        "200":
+          description: Students list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [students, total_students, active_students]
+                properties:
+                  students:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/StudentSummary"
+                  total_students:
+                    type: integer
+                  active_students:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/teachers/{teacher_id}/students/{student_id}/progress:
+    get:
+      tags: [teachers]
+      operationId: getStudentProgress
+      summary: Get detailed progress of a specific student
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TeacherIdPath"
+        - $ref: "#/components/parameters/StudentIdPath"
+      responses:
+        "200":
+          description: Student detailed progress
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [student, modules]
+                properties:
+                  student:
+                    type: object
+                    required: [id, name, joined_at]
+                    properties:
+                      id:
+                        type: integer
+                        format: int64
+                      name:
+                        type: string
+                      joined_at:
+                        type: string
+                        format: date-time
+                  modules:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ModuleProgress"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/teachers/{teacher_id}/statistics:
+    get:
+      tags: [teachers]
+      operationId: getTeacherStatistics
+      summary: Get group statistics for teacher
+      security:
+        - TelegramAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TeacherIdPath"
+      responses:
+        "200":
+          description: Group statistics
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GroupStatistics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/Forbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ── 7. Admin ──────────────────────────────────────────────────────────────────
+  /api/v1/admin/promo-codes:
+    post:
+      tags: [admin]
+      operationId: adminCreatePromoCode
+      summary: Create a new promo code
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [code, university_name, max_activations]
+              properties:
+                code:
+                  type: string
+                  example: ABC123
+                university_name:
+                  type: string
+                  example: МГУ
+                max_activations:
+                  type: integer
+                  minimum: 1
+                  example: 50
+                expires_at:
+                  type: string
+                  format: date-time
+                  nullable: true
+      responses:
+        "201":
+          description: Promo code created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PromoCode"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /api/v1/admin/promo-codes/{code}:
+    delete:
+      tags: [admin]
+      operationId: adminDeactivatePromoCode
+      summary: Deactivate a promo code
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: code
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Promo code deactivated
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [code, status, deactivated_at]
+                properties:
+                  code:
+                    type: string
+                  status:
+                    type: string
+                    example: deactivated
+                  deactivated_at:
+                    type: string
+                    format: date-time
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/content/modules:
+    post:
+      tags: [admin]
+      operationId: adminCreateModule
+      summary: Create a new module
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, order_num]
+              properties:
+                name:
+                  type: string
+                  example: Анатомия мышц
+                description:
+                  type: string
+                  nullable: true
+                order_num:
+                  type: integer
+                  example: 2
+                is_locked:
+                  type: boolean
+                  default: false
+                icon_emoji:
+                  type: string
+                  nullable: true
+      responses:
+        "201":
+          description: Module created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Module"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/content/modules/{module_id}:
+    put:
+      tags: [admin]
+      operationId: adminUpdateModule
+      summary: Update a module (idempotent)
+      security:
+        - AdminAuth: []
+      parameters:
+        - $ref: "#/components/parameters/ModuleIdPath"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name, order_num]
+              properties:
+                name:
+                  type: string
+                description:
+                  type: string
+                  nullable: true
+                order_num:
+                  type: integer
+                is_locked:
+                  type: boolean
+                icon_emoji:
+                  type: string
+                  nullable: true
+      responses:
+        "200":
+          description: Module updated
+          content:
+            application/json:
+              schema:
+                type: object
+                allOf:
+                  - $ref: "#/components/schemas/Module"
+                  - type: object
+                    properties:
+                      updated_at:
+                        type: string
+                        format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/content/themes:
+    post:
+      tags: [admin]
+      operationId: adminCreateTheme
+      summary: Create a theme in a module
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [module_id, name, order_num]
+              properties:
+                module_id:
+                  type: integer
+                name:
+                  type: string
+                description:
+                  type: string
+                  nullable: true
+                order_num:
+                  type: integer
+                is_introduction:
+                  type: boolean
+                  default: false
+                is_locked:
+                  type: boolean
+                  default: false
+                estimated_time_minutes:
+                  type: integer
+                  nullable: true
+      responses:
+        "201":
+          description: Theme created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Theme"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/content/mnemonics:
+    post:
+      tags: [admin]
+      operationId: adminCreateMnemonic
+      summary: Create a mnemonic for a theme
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [theme_id, type, order_num]
+              properties:
+                theme_id:
+                  type: integer
+                type:
+                  type: string
+                  enum: [text, image]
+                content_text:
+                  type: string
+                  nullable: true
+                s3_image_key:
+                  type: string
+                  nullable: true
+                order_num:
+                  type: integer
+      responses:
+        "201":
+          description: Mnemonic created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Mnemonic"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/content/tests:
+    post:
+      tags: [admin]
+      operationId: adminCreateTest
+      summary: Create a test for a theme
+      security:
+        - AdminAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [theme_id, passing_score, questions]
+              properties:
+                theme_id:
+                  type: integer
+                difficulty:
+                  type: integer
+                  minimum: 1
+                  maximum: 5
+                  default: 1
+                passing_score:
+                  type: integer
+                  minimum: 0
+                  maximum: 100
+                  default: 70
+                shuffle_questions:
+                  type: boolean
+                  default: true
+                shuffle_answers:
+                  type: boolean
+                  default: true
+                questions:
+                  type: array
+                  minItems: 1
+                  items:
+                    type: object
+                    required: [question, type, options, correct_answer, order_num]
+                    properties:
+                      question:
+                        type: string
+                      type:
+                        type: string
+                        enum: [multiple_choice, true_false]
+                      options:
+                        type: array
+                        items:
+                          type: string
+                      correct_answer:
+                        type: string
+                      order_num:
+                        type: integer
+      responses:
+        "201":
+          description: Test created
+          headers:
+            Location:
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [id, theme_id, difficulty, passing_score, total_questions, created_at]
+                properties:
+                  id:
+                    type: integer
+                  theme_id:
+                    type: integer
+                  difficulty:
+                    type: integer
+                  passing_score:
+                    type: integer
+                  total_questions:
+                    type: integer
+                  created_at:
+                    type: string
+                    format: date-time
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/admin/users:
+    get:
+      tags: [admin]
+      operationId: adminGetUsers
+      summary: List all users with filtering
+      security:
+        - AdminAuth: []
+      parameters:
+        - name: role
+          in: query
+          schema:
+            $ref: "#/components/schemas/UserRole"
+        - name: subscription_status
+          in: query
+          schema:
+            $ref: "#/components/schemas/SubscriptionStatus"
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 50
+            maximum: 200
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: Users list
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [users, total, limit, offset]
+                properties:
+                  users:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AdminUser"
+                  total:
+                    type: integer
+                  limit:
+                    type: integer
+                  offset:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/admin/analytics/overview:
+    get:
+      tags: [admin]
+      operationId: adminGetAnalytics
+      summary: System analytics overview
+      security:
+        - AdminAuth: []
+      responses:
+        "200":
+          description: Analytics overview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AnalyticsOverview"
+        "401":
+          $ref: "#/components/responses/Unauthorized"

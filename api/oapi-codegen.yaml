@@ -1,0 +1,7 @@
+package: api
+generate:
+  - types
+  - strict-server
+output: ../internal/api/generated.go
+output-options:
+  skip-fmt: false
