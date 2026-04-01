@@ -3,6 +3,7 @@ package content_test
 import (
 	"context"
 	"fmt"
+	"io"
 	"testing"
 	"time"
 
@@ -30,8 +31,10 @@ func (m *mockModuleRepo) GetByID(ctx context.Context, id int) (*content.Module, 
 	}
 	return nil, apperrors.ErrNotFound
 }
-func (m *mockModuleRepo) Create(ctx context.Context, mod *content.Module) error { return nil }
-func (m *mockModuleRepo) Update(ctx context.Context, mod *content.Module) error { return nil }
+func (m *mockModuleRepo) Create(ctx context.Context, mod *content.Module) error   { return nil }
+func (m *mockModuleRepo) Update(ctx context.Context, mod *content.Module) error   { return nil }
+func (m *mockModuleRepo) Delete(ctx context.Context, id int) error                { return nil }
+func (m *mockModuleRepo) GetMaxOrderNum(ctx context.Context) (int, error)         { return 0, nil }
 
 type mockThemeRepo struct {
 	themes        map[int]*content.Theme
@@ -49,6 +52,11 @@ func (m *mockThemeRepo) GetByID(ctx context.Context, id int) (*content.Theme, er
 	return nil, apperrors.ErrNotFound
 }
 func (m *mockThemeRepo) Create(ctx context.Context, t *content.Theme) error { return nil }
+func (m *mockThemeRepo) Update(ctx context.Context, t *content.Theme) (*content.Theme, error) {
+	return t, nil
+}
+func (m *mockThemeRepo) Delete(ctx context.Context, id int) error                           { return nil }
+func (m *mockThemeRepo) GetMaxOrderNum(ctx context.Context, moduleID int) (int, error)      { return 0, nil }
 func (m *mockThemeRepo) GetPreviousTheme(ctx context.Context, themeID int) (*content.Theme, error) {
 	prev, ok := m.previousTheme[themeID]
 	if !ok || prev == nil {
@@ -63,6 +71,11 @@ func (m *mockMnemonicRepo) GetByThemeID(ctx context.Context, themeID int) ([]*co
 	return nil, nil
 }
 func (m *mockMnemonicRepo) Create(ctx context.Context, mn *content.Mnemonic) error { return nil }
+func (m *mockMnemonicRepo) Update(ctx context.Context, mn *content.Mnemonic) (*content.Mnemonic, error) {
+	return mn, nil
+}
+func (m *mockMnemonicRepo) Delete(ctx context.Context, id int) error                              { return nil }
+func (m *mockMnemonicRepo) GetMaxOrderNum(ctx context.Context, themeID int) (int, error)          { return 0, nil }
 
 type mockTestRepo struct {
 	tests map[int]*content.Test // themeID → test
@@ -78,6 +91,10 @@ func (m *mockTestRepo) GetByID(ctx context.Context, id int) (*content.Test, erro
 	return nil, apperrors.ErrNotFound
 }
 func (m *mockTestRepo) Create(ctx context.Context, t *content.Test) error { return nil }
+func (m *mockTestRepo) Update(ctx context.Context, t *content.Test) (*content.Test, error) {
+	return t, nil
+}
+func (m *mockTestRepo) Delete(ctx context.Context, id int) error { return nil }
 
 type mockProgressRepo struct {
 	data map[string]*progress.UserProgress
@@ -172,6 +189,9 @@ func (m *mockSubscriptionRepo) GetByPaymentID(ctx context.Context, paymentID str
 
 type mockStorageService struct{}
 
+func (m *mockStorageService) UploadFile(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
+	return nil
+}
 func (m *mockStorageService) PresignURL(ctx context.Context, s3Key string) (string, error) {
 	return "https://cdn.example.com/" + s3Key, nil
 }

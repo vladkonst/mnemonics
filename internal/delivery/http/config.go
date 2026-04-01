@@ -1,6 +1,9 @@
 package http
 
-import "os"
+import (
+	"os"
+	"path/filepath"
+)
 
 // Config holds all configuration for the HTTP server and its dependencies.
 // Values are read from environment variables with defaults.
@@ -8,6 +11,7 @@ type Config struct {
 	Addr       string
 	AdminToken string
 	DBPath     string
+	UploadsDir string
 	LogLevel   string
 	LogFormat  string
 
@@ -25,10 +29,12 @@ type Config struct {
 
 // LoadConfig reads configuration from environment variables, applying defaults where needed.
 func LoadConfig() Config {
+	dbPath := getEnvOrDefault("SQLITE_PATH", getEnvOrDefault("DB_PATH", "./mnemo.db"))
 	return Config{
 		Addr:       getEnvOrDefault("SERVER_ADDR", ":8080"),
 		AdminToken: getEnvOrDefault("ADMIN_TOKEN", "changeme"),
-		DBPath:     getEnvOrDefault("DB_PATH", "./mnemo.db"),
+		DBPath:     dbPath,
+		UploadsDir: getEnvOrDefault("UPLOADS_DIR", filepath.Join(filepath.Dir(dbPath), "uploads")),
 		LogLevel:   getEnvOrDefault("LOG_LEVEL", "info"),
 		LogFormat:  getEnvOrDefault("LOG_FORMAT", "console"),
 

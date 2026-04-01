@@ -6,9 +6,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vladkonst/mnemonics/internal/delivery/http/middleware"
 	"github.com/vladkonst/mnemonics/internal/delivery/http/respond"
-	contentUC "github.com/vladkonst/mnemonics/internal/usecase/content"
 	"github.com/vladkonst/mnemonics/internal/domain/progress"
+	contentUC "github.com/vladkonst/mnemonics/internal/usecase/content"
 )
 
 // ContentHandler handles content-related HTTP endpoints.
@@ -21,11 +22,11 @@ func NewContentHandler(uc *contentUC.UseCase) *ContentHandler {
 	return &ContentHandler{uc: uc}
 }
 
-// GetModules handles GET /api/v1/content/modules?user_id=...
+// GetModules handles GET /api/v1/content/modules.
 func (h *ContentHandler) GetModules(w http.ResponseWriter, r *http.Request) {
-	userID, err := parseQueryUserID(r)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+	userID, ok := middleware.TelegramUserID(r.Context())
+	if !ok {
+		respond.Error(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
 		return
 	}
 
@@ -40,7 +41,7 @@ func (h *ContentHandler) GetModules(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
-// GetModuleThemes handles GET /api/v1/content/modules/{module_id}/themes?user_id=...
+// GetModuleThemes handles GET /api/v1/content/modules/{module_id}/themes.
 func (h *ContentHandler) GetModuleThemes(w http.ResponseWriter, r *http.Request) {
 	moduleID, err := parseModuleID(r)
 	if err != nil {
@@ -48,13 +49,47 @@ func (h *ContentHandler) GetModuleThemes(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
-	userID, err := parseQueryUserID(r)
+	userID, ok := middleware.TelegramUserID(r.Context())
+	if !ok {
+		respond.Error(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	result, err := h.uc.GetModuleThemes(r.Context(), moduleID, userID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, result)
+}
+
+// GetModule handles GET /api/v1/content/modules/{module_id}.
+func (h *ContentHandler) GetModule(w http.ResponseWriter, r *http.Request) {
+	moduleID, err := parseModuleID(r)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
 
-	result, err := h.uc.GetModuleThemes(r.Context(), moduleID, userID)
+	module, err := h.uc.GetModule(r.Context(), moduleID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, module)
+}
+
+// GetTheme handles GET /api/v1/content/themes/{theme_id}.
+func (h *ContentHandler) GetTheme(w http.ResponseWriter, r *http.Request) {
+	themeID, err := parseThemeIDPath(r)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+
+	result, err := h.uc.GetTheme(r.Context(), themeID)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
@@ -75,6 +110,9 @@ func (h *ContentHandler) CreateStudySession(w http.ResponseWriter, r *http.Reque
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
 
 	var req createStudySessionRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -92,7 +130,6 @@ func (h *ContentHandler) CreateStudySession(w http.ResponseWriter, r *http.Reque
 		return
 	}
 
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d/study-sessions/%s", userID, result.SessionID))
 	respond.JSON(w, http.StatusCreated, result)
 }
 
@@ -106,6 +143,9 @@ func (h *ContentHandler) StartTestAttempt(w http.ResponseWriter, r *http.Request
 	userID, err := parseUserID(r)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
 		return
 	}
 
@@ -146,6 +186,9 @@ func (h *ContentHandler) SubmitTestAttempt(w http.ResponseWriter, r *http.Reques
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
 
 	attemptID := r.PathValue("attempt_id")
 	if attemptID == "" {
@@ -176,11 +219,14 @@ func (h *ContentHandler) SubmitTestAttempt(w http.ResponseWriter, r *http.Reques
 	respond.JSON(w, http.StatusOK, result)
 }
 
-// CheckThemeAccess handles GET /api/v1/users/{user_id}/theme/{theme_id}/access.
+// CheckThemeAccess handles GET /api/v1/users/{user_id}/themes/{theme_id}/access.
 func (h *ContentHandler) CheckThemeAccess(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUserID(r)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
 		return
 	}
 
@@ -197,19 +243,6 @@ func (h *ContentHandler) CheckThemeAccess(w http.ResponseWriter, r *http.Request
 	}
 
 	respond.JSON(w, http.StatusOK, result)
-}
-
-// parseQueryUserID parses user_id from the query string.
-func parseQueryUserID(r *http.Request) (int64, error) {
-	raw := r.URL.Query().Get("user_id")
-	if raw == "" {
-		return 0, fmt.Errorf("user_id query parameter is required")
-	}
-	id, err := strconv.ParseInt(raw, 10, 64)
-	if err != nil || id <= 0 {
-		return 0, fmt.Errorf("user_id must be a valid positive integer")
-	}
-	return id, nil
 }
 
 // parseModuleID extracts and validates the module_id path parameter.

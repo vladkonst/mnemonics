@@ -21,16 +21,16 @@ const (
 
 // Subscription records a paid or promo-granted access period.
 type Subscription struct {
-	PaymentID          string
-	UserID             int64
-	Type               SubscriptionType
-	Status             SubscriptionPlanStatus
-	Plan               *string
-	ExpiresAt          *time.Time
-	AutoRenew          bool
-	CancelledAt        *time.Time
-	CancellationReason *string
-	CreatedAt          time.Time
+	PaymentID          string                 `json:"payment_id"`
+	UserID             int64                  `json:"user_id"`
+	Type               SubscriptionType       `json:"type"`
+	Status             SubscriptionPlanStatus `json:"status"`
+	Plan               *string                `json:"plan,omitempty"`
+	ExpiresAt          *time.Time             `json:"expires_at,omitempty"`
+	AutoRenew          bool                   `json:"auto_renew"`
+	CancelledAt        *time.Time             `json:"cancelled_at,omitempty"`
+	CancellationReason *string                `json:"cancellation_reason,omitempty"`
+	CreatedAt          time.Time              `json:"created_at"`
 }
 
 // IsActive reports whether the subscription grants current access.

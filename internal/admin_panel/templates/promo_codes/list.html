@@ -1,0 +1,40 @@
+{{template "base.html" .}}
+{{define "title"}}Промокоды — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Промокоды</h4>
+  <a href="/admin/promo-codes/new" class="btn btn-primary btn-sm"><i class="bi bi-plus"></i> Создать</a>
+</div>
+<div class="card">
+  <table class="table table-hover mb-0">
+    <thead class="table-light"><tr>
+      <th>Код</th><th>Университет</th><th>Макс.</th><th>Остаток</th><th>Статус</th><th>Истекает</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .PromoCodes}}
+    <tr>
+      <td><code>{{.Code}}</code></td>
+      <td>{{.UniversityName}}</td>
+      <td>{{.MaxActivations}}</td>
+      <td>{{.Remaining}}</td>
+      <td>
+        {{if eq (string .Status) "active"}}<span class="badge bg-success">active</span>
+        {{else if eq (string .Status) "pending"}}<span class="badge bg-warning">pending</span>
+        {{else if eq (string .Status) "expired"}}<span class="badge bg-secondary">expired</span>
+        {{else}}<span class="badge bg-danger">deactivated</span>{{end}}
+      </td>
+      <td>{{if .ExpiresAt}}{{formatTime .ExpiresAt}}{{else}}—{{end}}</td>
+      <td class="text-end">
+        {{if ne (string .Status) "deactivated"}}
+        <form method="POST" action="/admin/promo-codes/{{.Code}}/deactivate" class="d-inline" onsubmit="return confirm('Деактивировать промокод?')">
+          <button class="btn btn-sm btn-outline-warning">Деактивировать</button>
+        </form>
+        {{end}}
+      </td>
+    </tr>
+    {{else}}<tr><td colspan="7" class="text-center text-muted py-4">Нет промокодов</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

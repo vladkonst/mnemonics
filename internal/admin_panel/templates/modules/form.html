@@ -1,0 +1,35 @@
+{{template "base.html" .}}
+{{define "title"}}{{if .Module}}Редактировать{{else}}Создать{{end}} модуль — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex align-items-center mb-3">
+  <a href="/admin/modules" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h4 class="mb-0">{{if .Module}}Редактировать модуль{{else}}Новый модуль{{end}}</h4>
+</div>
+<div class="card p-4" style="max-width:600px">
+  <form method="POST" action="{{if .Module}}/admin/modules/{{.Module.ID}}/edit{{else}}/admin/modules/new{{end}}">
+    <div class="mb-3">
+      <label class="form-label">Название *</label>
+      <input type="text" name="name" class="form-control" value="{{if .Module}}{{.Module.Name}}{{end}}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Описание</label>
+      <textarea name="description" class="form-control" rows="3">{{if .Module}}{{if .Module.Description}}{{deref .Module.Description}}{{end}}{{end}}</textarea>
+    </div>
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Порядок</label>
+        <input type="number" name="order_num" class="form-control" value="{{if .Module}}{{.Module.OrderNum}}{{else}}1{{end}}">
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Эмодзи</label>
+        <input type="text" name="icon_emoji" class="form-control" value="{{if .Module}}{{if .Module.IconEmoji}}{{deref .Module.IconEmoji}}{{end}}{{end}}">
+      </div>
+    </div>
+    <div class="mb-3 form-check">
+      <input type="checkbox" name="is_locked" id="is_locked" class="form-check-input" value="1" {{if .Module}}{{if .Module.IsLocked}}checked{{end}}{{end}}>
+      <label class="form-check-label" for="is_locked">Заблокирован</label>
+    </div>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </form>
+</div>
+{{end}}

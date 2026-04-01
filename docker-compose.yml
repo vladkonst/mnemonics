@@ -1,4 +1,26 @@
 services:
+  server:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      SQLITE_PATH: /app/data/mnemo.db
+
+  admin:
+    build:
+      context: ./admin-ui
+      dockerfile: Dockerfile
+    ports:
+      - "9000:80"
+    depends_on:
+      - server
+
   swagger-ui:
     image: swaggerapi/swagger-ui
     ports:
@@ -6,4 +28,4 @@ services:
     volumes:
       - ./api/openapi.yaml:/usr/share/nginx/html/openapi.yaml
     environment:
-      SWAGGER_JSON: /usr/share/nginx/html/openapi.yaml
+      SWAGGER_JSON_URL: /openapi.yaml

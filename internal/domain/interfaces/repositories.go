@@ -20,6 +20,7 @@ type UserRepository interface {
 	GetByID(ctx context.Context, telegramID int64) (*user.User, error)
 	Update(ctx context.Context, u *user.User) error
 	Exists(ctx context.Context, telegramID int64) (bool, error)
+	GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error)
 }
 
 // ── Content ──────────────────────────────────────────────────────────────────
@@ -30,6 +31,8 @@ type ModuleRepository interface {
 	GetByID(ctx context.Context, id int) (*content.Module, error)
 	Create(ctx context.Context, m *content.Module) error
 	Update(ctx context.Context, m *content.Module) error
+	Delete(ctx context.Context, id int) error
+	GetMaxOrderNum(ctx context.Context) (int, error)
 }
 
 // ThemeRepository abstracts persistence for Theme entities.
@@ -39,12 +42,18 @@ type ThemeRepository interface {
 	Create(ctx context.Context, t *content.Theme) error
 	// GetPreviousTheme returns the theme with order_num = theme.order_num - 1 in the same module.
 	GetPreviousTheme(ctx context.Context, themeID int) (*content.Theme, error)
+	Update(ctx context.Context, theme *content.Theme) (*content.Theme, error)
+	Delete(ctx context.Context, id int) error
+	GetMaxOrderNum(ctx context.Context, moduleID int) (int, error)
 }
 
 // MnemonicRepository abstracts persistence for Mnemonic entities.
 type MnemonicRepository interface {
 	GetByThemeID(ctx context.Context, themeID int) ([]*content.Mnemonic, error)
 	Create(ctx context.Context, m *content.Mnemonic) error
+	Update(ctx context.Context, m *content.Mnemonic) (*content.Mnemonic, error)
+	Delete(ctx context.Context, id int) error
+	GetMaxOrderNum(ctx context.Context, themeID int) (int, error)
 }
 
 // TestRepository abstracts persistence for Test aggregates.
@@ -52,6 +61,8 @@ type TestRepository interface {
 	GetByThemeID(ctx context.Context, themeID int) (*content.Test, error)
 	GetByID(ctx context.Context, id int) (*content.Test, error)
 	Create(ctx context.Context, t *content.Test) error
+	Update(ctx context.Context, t *content.Test) (*content.Test, error)
+	Delete(ctx context.Context, id int) error
 }
 
 // ── Progress ─────────────────────────────────────────────────────────────────
@@ -83,6 +94,9 @@ type PromoCodeRepository interface {
 	Create(ctx context.Context, p *subscription.PromoCode) error
 	Deactivate(ctx context.Context, code string) error
 	GetByTeacherID(ctx context.Context, teacherID int64) ([]*subscription.PromoCode, error)
+	// ConsumeOne atomically decrements remaining by 1 if remaining > 0.
+	// Returns ErrPromoCodeExhausted if no slots remain.
+	ConsumeOne(ctx context.Context, code string) error
 }
 
 // SubscriptionRepository abstracts persistence for Subscription records.

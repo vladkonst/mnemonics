@@ -53,7 +53,7 @@ INSERT INTO promo_codes (code, university_name, max_activations, remaining, stat
     ('DEMO2025', 'Демо-университет', 30, 30, 'pending', '2026-06-30 23:59:59');
 
 -- Demo users
-INSERT INTO users (telegram_id, first_name, last_name, username, role, subscription_status) VALUES
-    (100000001, 'Иван', 'Студентов', 'ivan_student', 'student', 'inactive'),
-    (100000002, 'Мария', 'Преподавателева', 'maria_teacher', 'teacher', 'inactive'),
-    (100000003, 'Алексей', 'Подписчиков', 'alex_subscribed', 'student', 'active');
+INSERT INTO users (telegram_id, username, role, subscription_status) VALUES
+    (100000001, 'ivan_student', 'student', 'inactive'),
+    (100000002, 'maria_teacher', 'teacher', 'inactive'),
+    (100000003, 'alex_subscribed', 'student', 'active');

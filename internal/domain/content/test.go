@@ -15,24 +15,24 @@ const (
 
 // Question is a value object within a Test.
 type Question struct {
-	ID            int
-	Text          string
-	Type          QuestionType
-	Options       []string
-	CorrectAnswer string
-	OrderNum      int
+	ID            int          `json:"id"`
+	Text          string       `json:"text"`
+	Type          QuestionType `json:"type"`
+	Options       []string     `json:"options"`
+	CorrectAnswer string       `json:"correct_answer"`
+	OrderNum      int          `json:"order_num"`
 }
 
 // Test is an aggregate root that holds a set of Questions for a Theme.
 type Test struct {
-	ID               int
-	ThemeID          int
-	Questions        []Question
-	Difficulty       int
-	PassingScore     int
-	ShuffleQuestions bool
-	ShuffleAnswers   bool
-	CreatedAt        time.Time
+	ID               int        `json:"id"`
+	ThemeID          int        `json:"theme_id"`
+	Questions        []Question `json:"questions"`
+	Difficulty       int        `json:"difficulty"`
+	PassingScore     int        `json:"passing_score"`
+	ShuffleQuestions bool       `json:"shuffle_questions"`
+	ShuffleAnswers   bool       `json:"shuffle_answers"`
+	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // Grade evaluates a set of answers and returns the score percentage.

@@ -49,8 +49,20 @@ func IsNotFound(err error) bool { return errors.Is(err, ErrNotFound) }
 // IsConflict reports whether err is a conflict-type error.
 func IsConflict(err error) bool {
 	return errors.Is(err, ErrAlreadyExists) ||
+		errors.Is(err, ErrAlreadyConsumed) ||
 		errors.Is(err, ErrActiveSubscriptionExists) ||
 		errors.Is(err, ErrPaymentAlreadyProcessed)
+}
+
+// IsBadRequest reports whether err is a client-error (400) type error.
+func IsBadRequest(err error) bool {
+	return errors.Is(err, ErrInvalidInput) ||
+		errors.Is(err, ErrPromoCodeNotActive) ||
+		errors.Is(err, ErrPromoCodeExpired) ||
+		errors.Is(err, ErrPromoCodeExhausted) ||
+		errors.Is(err, ErrAlreadyActivated) ||
+		errors.Is(err, ErrInvalidScore) ||
+		errors.Is(err, ErrInvalidStatus)
 }
 
 // IsForbidden reports whether err is a forbidden-type error.

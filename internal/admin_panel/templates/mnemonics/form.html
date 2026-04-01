@@ -1,0 +1,50 @@
+{{template "base.html" .}}
+{{define "title"}}{{if .Mnemonic}}Редактировать{{else}}Создать{{end}} мнемонику — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex align-items-center mb-3">
+  <a href="/admin/mnemonics" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h4 class="mb-0">{{if .Mnemonic}}Редактировать мнемонику{{else}}Новая мнемоника{{end}}</h4>
+</div>
+<div class="card p-4" style="max-width:600px">
+  <form method="POST" action="{{if .Mnemonic}}/admin/mnemonics/{{.Mnemonic.ID}}/edit{{else}}/admin/mnemonics/new{{end}}">
+    <div class="mb-3">
+      <label class="form-label">Тема *</label>
+      <select name="theme_id" class="form-select" required>
+        <option value="">Выберите тему</option>
+        {{range .Themes}}<option value="{{.ID}}" {{if $.Mnemonic}}{{if eq $.Mnemonic.ThemeID .ID}}selected{{end}}{{end}}>{{.Name}} (модуль {{.ModuleID}})</option>{{end}}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Тип *</label>
+      <select name="type" class="form-select" required id="mnType">
+        <option value="text" {{if .Mnemonic}}{{if eq (string .Mnemonic.Type) "text"}}selected{{end}}{{end}}>Текст</option>
+        <option value="image" {{if .Mnemonic}}{{if eq (string .Mnemonic.Type) "image"}}selected{{end}}{{end}}>Изображение</option>
+      </select>
+    </div>
+    <div class="mb-3" id="textField">
+      <label class="form-label">Текст</label>
+      <textarea name="content_text" class="form-control" rows="5">{{if .Mnemonic}}{{if .Mnemonic.ContentText}}{{deref .Mnemonic.ContentText}}{{end}}{{end}}</textarea>
+    </div>
+    <div class="mb-3" id="imageField" style="display:none">
+      <label class="form-label">S3 ключ изображения</label>
+      <input type="text" name="s3_image_key" class="form-control" value="{{if .Mnemonic}}{{if .Mnemonic.S3ImageKey}}{{deref .Mnemonic.S3ImageKey}}{{end}}{{end}}">
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Порядок</label>
+      <input type="number" name="order_num" class="form-control" value="{{if .Mnemonic}}{{.Mnemonic.OrderNum}}{{else}}1{{end}}">
+    </div>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </form>
+</div>
+{{end}}
+{{define "scripts"}}
+<script>
+  function toggleFields() {
+    const t = document.getElementById('mnType').value;
+    document.getElementById('textField').style.display = t === 'text' ? '' : 'none';
+    document.getElementById('imageField').style.display = t === 'image' ? '' : 'none';
+  }
+  document.getElementById('mnType').addEventListener('change', toggleFields);
+  toggleFields();
+</script>
+{{end}}

@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/vladkonst/mnemonics/internal/domain/subscription"
 	"github.com/vladkonst/mnemonics/pkg/apperrors"
@@ -24,7 +25,7 @@ func (r *PromoCodeRepo) GetByCode(ctx context.Context, code string) (*subscripti
 		       expires_at, created_by_admin_id, activated_at, created_at
 		FROM promo_codes WHERE code = ?`
 
-	row := r.db.QueryRowContext(ctx, q, code)
+	row := r.db.QueryRowContext(ctx, q, strings.ToUpper(code))
 	p, err := scanPromoCode(row)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -60,11 +61,28 @@ func (r *PromoCodeRepo) Create(ctx context.Context, p *subscription.PromoCode) e
 		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(ctx, q,
-		p.Code, p.UniversityName, p.TeacherID, p.MaxActivations,
+		strings.ToUpper(p.Code), p.UniversityName, p.TeacherID, p.MaxActivations,
 		p.Remaining, string(p.Status), p.ExpiresAt,
 		p.CreatedByAdminID, p.ActivatedAt,
 	)
 	return err
+}
+
+// ConsumeOne atomically decrements remaining by 1 if remaining > 0.
+func (r *PromoCodeRepo) ConsumeOne(ctx context.Context, code string) error {
+	const q = `UPDATE promo_codes SET remaining = remaining - 1 WHERE code = ? AND remaining > 0`
+	res, err := r.db.ExecContext(ctx, q, strings.ToUpper(code))
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return apperrors.ErrPromoCodeExhausted
+	}
+	return nil
 }
 
 func (r *PromoCodeRepo) Deactivate(ctx context.Context, code string) error {

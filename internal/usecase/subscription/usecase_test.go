@@ -37,6 +37,9 @@ func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error) {
 	_, ok := m.users[id]
 	return ok, nil
 }
+func (m *mockUserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
+	return nil, 0, nil
+}
 
 type mockPromoCodeRepo struct {
 	codes map[string]*subscription.PromoCode
@@ -73,6 +76,17 @@ func (m *mockPromoCodeRepo) GetByTeacherID(ctx context.Context, teacherID int64)
 		}
 	}
 	return result, nil
+}
+func (m *mockPromoCodeRepo) ConsumeOne(ctx context.Context, code string) error {
+	p, ok := m.codes[code]
+	if !ok {
+		return apperrors.ErrNotFound
+	}
+	if p.Remaining <= 0 {
+		return apperrors.ErrPromoCodeExhausted
+	}
+	p.Remaining--
+	return nil
 }
 
 type mockSubscriptionRepo struct {

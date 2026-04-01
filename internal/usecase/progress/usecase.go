@@ -12,41 +12,41 @@ import (
 
 // ThemeProgressItem summarises progress for a single theme.
 type ThemeProgressItem struct {
-	ThemeID       int
-	ThemeName     string
-	Status        progress.Status
-	Score         *int
-	AttemptCount  int
-	CompletedAt   interface{} // *time.Time or nil
+	ThemeID      int             `json:"theme_id"`
+	ThemeName    string          `json:"theme_name"`
+	Status       progress.Status `json:"status"`
+	Score        *int            `json:"score,omitempty"`
+	AttemptCount int             `json:"attempt_count"`
+	CompletedAt  interface{}     `json:"completed_at,omitempty"`
 }
 
 // ModuleSummary summarises progress across all themes in a module.
 type ModuleSummary struct {
-	ModuleID        int
-	ModuleName      string
-	TotalThemes     int
-	CompletedThemes int
-	AverageScore    *int
+	ModuleID        int  `json:"module_id"`
+	ModuleName      string `json:"module_name"`
+	TotalThemes     int  `json:"total_themes"`
+	CompletedThemes int  `json:"completed_themes"`
+	AverageScore    *int `json:"average_score,omitempty"`
 }
 
 // UserProgressResult contains overall user progress statistics.
 type UserProgressResult struct {
-	UserID          int64
-	TotalThemes     int
-	CompletedThemes int
-	AverageScore    *int
-	RecentActivity  []*progress.UserProgress
-	ModuleSummaries []*ModuleSummary
+	UserID          int64                   `json:"user_id"`
+	TotalThemes     int                     `json:"total_themes"`
+	CompletedThemes int                     `json:"completed_themes"`
+	AverageScore    *int                    `json:"average_score,omitempty"`
+	RecentActivity  []*progress.UserProgress `json:"recent_activity"`
+	ModuleSummaries []*ModuleSummary         `json:"module_summaries"`
 }
 
 // ModuleProgressResult contains per-module progress details.
 type ModuleProgressResult struct {
-	ModuleID    int
-	ModuleName  string
-	Themes      []*ThemeProgressItem
-	Completed   int
-	Total       int
-	AverageScore *int
+	ModuleID     int                  `json:"module_id"`
+	ModuleName   string               `json:"module_name"`
+	Themes       []*ThemeProgressItem `json:"themes"`
+	Completed    int                  `json:"completed"`
+	Total        int                  `json:"total"`
+	AverageScore *int                 `json:"average_score,omitempty"`
 }
 
 // ── UseCase ──────────────────────────────────────────────────────────────────

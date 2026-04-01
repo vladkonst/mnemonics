@@ -11,23 +11,23 @@ import (
 
 // SubmitResult carries the outcome of a test submission.
 type SubmitResult struct {
-	Score          int
-	PassingScore   int
-	Passed         bool
-	CorrectAnswers int
-	TotalQuestions int
-	AttemptNumber  int
-	NextAction     *NextAction
-	MotivationMsg  string
+	Score          int         `json:"score"`
+	PassingScore   int         `json:"passing_score"`
+	Passed         bool        `json:"passed"`
+	CorrectAnswers int         `json:"correct_answers"`
+	TotalQuestions int         `json:"total_questions"`
+	AttemptNumber  int         `json:"attempt_number"`
+	NextAction     *NextAction `json:"next_action,omitempty"`
+	MotivationMsg  string      `json:"motivation_msg"`
 }
 
 // NextAction describes what the user should do after submitting a test.
 type NextAction struct {
-	Type           string // "next_theme", "retry_test", "module_completed", "all_completed"
-	ThemeID        *int
-	ThemeName      *string
-	IsIntroduction *bool
-	Message        *string
+	Type           string  `json:"type"`
+	ThemeID        *int    `json:"theme_id,omitempty"`
+	ThemeName      *string `json:"theme_name,omitempty"`
+	IsIntroduction *bool   `json:"is_introduction,omitempty"`
+	Message        *string `json:"message,omitempty"`
 }
 
 // StartTestAttempt creates a new test attempt record for a user and theme.
@@ -88,6 +88,11 @@ func (uc *UseCase) SubmitTestAttempt(ctx context.Context, userID int64, attemptI
 		return nil, err
 	}
 
+	// Verify the attempt belongs to this user before anything else.
+	if attempt.UserID != userID {
+		return nil, apperrors.ErrForbidden
+	}
+
 	// Idempotency: return cached result if already submitted.
 	if attempt.IsSubmitted() {
 		test, err := uc.tests.GetByThemeID(ctx, attempt.ThemeID)
@@ -105,11 +110,6 @@ func (uc *UseCase) SubmitTestAttempt(ctx context.Context, userID int64, attemptI
 			NextAction:     nextAction,
 			MotivationMsg:  buildMotivation(attempt.Passed),
 		}, nil
-	}
-
-	// Verify the attempt belongs to this user.
-	if attempt.UserID != userID {
-		return nil, apperrors.ErrForbidden
 	}
 
 	// Load the test.

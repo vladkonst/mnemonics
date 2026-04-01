@@ -14,17 +14,17 @@ const (
 // UserProgress is the aggregate root tracking a user's state for one theme.
 // Primary key: (UserID, ThemeID).
 type UserProgress struct {
-	UserID            int64
-	ThemeID           int
-	Status            Status
-	Score             *int
-	CurrentAttempt    int
-	TestStartedAt     *time.Time
-	StartedAt         time.Time
-	CompletedAt       *time.Time
-	TimeSpentSeconds  int
-	LastViewedAt      *time.Time
-	UpdatedAt         time.Time
+	UserID           int64      `json:"user_id"`
+	ThemeID          int        `json:"theme_id"`
+	Status           Status     `json:"status"`
+	Score            *int       `json:"score,omitempty"`
+	CurrentAttempt   int        `json:"current_attempt"`
+	TestStartedAt    *time.Time `json:"test_started_at,omitempty"`
+	StartedAt        time.Time  `json:"started_at"`
+	CompletedAt      *time.Time `json:"completed_at,omitempty"`
+	TimeSpentSeconds int        `json:"time_spent_seconds"`
+	LastViewedAt     *time.Time `json:"last_viewed_at,omitempty"`
+	UpdatedAt        time.Time  `json:"updated_at"`
 }
 
 // MarkStarted records when a user begins studying a theme.

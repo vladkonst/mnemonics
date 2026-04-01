@@ -1,0 +1,37 @@
+{{template "base.html" .}}
+{{define "title"}}Дашборд — Mnemo Admin{{end}}
+{{define "content"}}
+<h4 class="mb-4">Дашборд</h4>
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card stat-card blue p-3">
+      <div class="text-muted small">Пользователи</div>
+      <div class="fs-3 fw-bold">{{.Stats.TotalUsers}}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card green p-3">
+      <div class="text-muted small">Активные подписки</div>
+      <div class="fs-3 fw-bold">{{.Stats.ActiveSubscriptions}}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card orange p-3">
+      <div class="text-muted small">Активные промокоды</div>
+      <div class="fs-3 fw-bold">{{.Stats.ActivePromoCodes}}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card purple p-3">
+      <div class="text-muted small">Модули</div>
+      <div class="fs-3 fw-bold">{{.Stats.TotalModules}}</div>
+    </div>
+  </div>
+  <div class="col-md-4">
+    <div class="card stat-card red p-3">
+      <div class="text-muted small">Попытки тестов</div>
+      <div class="fs-3 fw-bold">{{.Stats.TotalTestAttempts}}</div>
+    </div>
+  </div>
+</div>
+{{end}}

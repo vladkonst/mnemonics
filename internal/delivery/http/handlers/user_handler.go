@@ -7,9 +7,10 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vladkonst/mnemonics/internal/delivery/http/middleware"
 	"github.com/vladkonst/mnemonics/internal/delivery/http/respond"
-	userUC "github.com/vladkonst/mnemonics/internal/usecase/user"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
+	userUC "github.com/vladkonst/mnemonics/internal/usecase/user"
 )
 
 // UserHandler handles user-related HTTP endpoints.
@@ -25,8 +26,6 @@ func NewUserHandler(uc *userUC.UseCase) *UserHandler {
 // registerUserRequest is the JSON body for POST /api/v1/users.
 type registerUserRequest struct {
 	TelegramID int64  `json:"telegram_id"`
-	FirstName  string `json:"first_name"`
-	LastName   string `json:"last_name"`
 	Username   string `json:"username"`
 }
 
@@ -41,12 +40,12 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "bad_request", "telegram_id is required")
 		return
 	}
-	if req.FirstName == "" {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "first_name is required")
+	// Ensure the caller is registering their own account.
+	if !middleware.RequireOwner(w, r, req.TelegramID) {
 		return
 	}
 
-	u, err := h.uc.Register(r.Context(), req.TelegramID, req.FirstName, req.LastName, req.Username)
+	u, err := h.uc.Register(r.Context(), req.TelegramID, req.Username)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
@@ -54,6 +53,26 @@ func (h *UserHandler) RegisterUser(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d", u.TelegramID))
 	respond.JSON(w, http.StatusCreated, u)
+}
+
+// GetUser handles GET /api/v1/users/{user_id}.
+func (h *UserHandler) GetUser(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUserID(r)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
+
+	u, err := h.uc.GetByID(r.Context(), userID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, u)
 }
 
 // updateUserRequest is the JSON body for PATCH /api/v1/users/{user_id}.
@@ -70,6 +89,9 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
 
 	var req updateUserRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -77,26 +99,20 @@ func (h *UserHandler) UpdateUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var u interface{}
-
-	if req.Role != nil {
-		u, err = h.uc.UpdateRole(r.Context(), userID, user.Role(*req.Role))
-		if err != nil {
-			respond.ErrorFrom(w, err)
-			return
-		}
-	}
-
-	if req.Language != nil || req.NotificationsEnabled != nil {
-		u, err = h.uc.UpdateSettings(r.Context(), userID, req.Language, req.NotificationsEnabled)
-		if err != nil {
-			respond.ErrorFrom(w, err)
-			return
-		}
-	}
-
-	if u == nil {
+	if req.Role == nil && req.Language == nil && req.NotificationsEnabled == nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", "no updatable fields provided")
+		return
+	}
+
+	var role *user.Role
+	if req.Role != nil {
+		r := user.Role(*req.Role)
+		role = &r
+	}
+
+	u, err := h.uc.UpdateProfile(r.Context(), userID, role, req.Language, req.NotificationsEnabled)
+	if err != nil {
+		respond.ErrorFrom(w, err)
 		return
 	}
 
@@ -108,6 +124,9 @@ func (h *UserHandler) GetSubscription(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUserID(r)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
 		return
 	}
 

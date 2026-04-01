@@ -26,6 +26,19 @@ func TestNewScore_Invalid(t *testing.T) {
 	}
 }
 
+func TestScore_Passed(t *testing.T) {
+	s, _ := progress.NewScore(75)
+	if !s.Passed(70) {
+		t.Error("75 should pass threshold 70")
+	}
+	if !s.Passed(75) {
+		t.Error("75 should pass threshold 75")
+	}
+	if s.Passed(76) {
+		t.Error("75 should not pass threshold 76")
+	}
+}
+
 func TestScore_Grade(t *testing.T) {
 	cases := []struct {
 		score    int

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/vladkonst/mnemonics/internal/delivery/http/middleware"
 	"github.com/vladkonst/mnemonics/internal/delivery/http/respond"
 	subscriptionUC "github.com/vladkonst/mnemonics/internal/usecase/subscription"
 )
@@ -32,6 +33,9 @@ func (h *SubscriptionHandler) ActivatePromoCode(w http.ResponseWriter, r *http.R
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if !middleware.RequireOwner(w, r, teacherID) {
+		return
+	}
 
 	var req activatePromoCodeRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -49,8 +53,7 @@ func (h *SubscriptionHandler) ActivatePromoCode(w http.ResponseWriter, r *http.R
 		return
 	}
 
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/teachers/%d/promo-codes/%s", teacherID, promo.Code))
-	respond.JSON(w, http.StatusCreated, promo)
+	respond.JSON(w, http.StatusOK, promo)
 }
 
 // GetTeacherPromoCodes handles GET /api/v1/teachers/{teacher_id}/promo-codes.
@@ -85,6 +88,9 @@ func (h *SubscriptionHandler) CreateSubscription(w http.ResponseWriter, r *http.
 	userID, err := parseUserID(r)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
 		return
 	}
 

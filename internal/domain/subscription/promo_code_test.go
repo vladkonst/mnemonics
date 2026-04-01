@@ -68,6 +68,16 @@ func TestPromoCode_Consume_Exhausted(t *testing.T) {
 	}
 }
 
+func TestPromoCode_Deactivate(t *testing.T) {
+	p := pendingPromo()
+	_ = p.Activate(1)
+	p.Deactivate()
+
+	if p.Status != subscription.PromoCodeStatusDeactivated {
+		t.Errorf("expected status deactivated, got %q", p.Status)
+	}
+}
+
 func TestPromoCode_Expired(t *testing.T) {
 	p := pendingPromo()
 	_ = p.Activate(1)

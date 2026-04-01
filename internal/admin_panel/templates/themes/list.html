@@ -1,0 +1,34 @@
+{{template "base.html" .}}
+{{define "title"}}Темы — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Темы</h4>
+  <a href="/admin/themes/new" class="btn btn-primary btn-sm"><i class="bi bi-plus"></i> Добавить</a>
+</div>
+<div class="card">
+  <table class="table table-hover mb-0">
+    <thead class="table-light"><tr>
+      <th>ID</th><th>Название</th><th>Модуль</th><th>Порядок</th><th>Введение</th><th>Заблокирована</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Themes}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td>{{.Name}}</td>
+      <td>{{.ModuleID}}</td>
+      <td>{{.OrderNum}}</td>
+      <td>{{if .IsIntroduction}}<span class="badge bg-info">Да</span>{{else}}—{{end}}</td>
+      <td>{{if .IsLocked}}<span class="badge bg-warning">Да</span>{{else}}<span class="badge bg-success">Нет</span>{{end}}</td>
+      <td class="text-end">
+        <a href="/admin/themes/{{.ID}}/edit" class="btn btn-sm btn-outline-secondary">Изменить</a>
+        <form method="POST" action="/admin/themes/{{.ID}}/delete" class="d-inline" onsubmit="return confirm('Удалить тему?')">
+          <button class="btn btn-sm btn-outline-danger">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {{else}}<tr><td colspan="7" class="text-center text-muted py-4">Нет тем</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

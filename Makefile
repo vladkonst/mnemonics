@@ -48,6 +48,12 @@ seed:
 tidy:
 	go mod tidy
 
-# ── Swagger UI ───────────────────────────────────────────────────────────────
+# ── Docker ───────────────────────────────────────────────────────────────────
+up:
+	docker compose up --build
+
+down:
+	docker compose down
+
 swagger:
 	docker compose up swagger-ui

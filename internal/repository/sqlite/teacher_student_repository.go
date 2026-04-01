@@ -28,7 +28,7 @@ func (r *TeacherStudentRepo) AddStudent(ctx context.Context, teacherID, studentI
 func (r *TeacherStudentRepo) GetStudentsByTeacher(ctx context.Context, teacherID int64) ([]*user.User, error) {
 	const q = `
 		SELECT u.telegram_id, u.role, u.subscription_status, u.university_code,
-		       u.pending_payment_id, u.first_name, u.last_name, u.username,
+		       u.pending_payment_id, u.username,
 		       u.language, u.timezone, u.notifications_enabled, u.last_activity_at, u.created_at
 		FROM users u
 		JOIN teacher_promo_students ts ON ts.student_id = u.telegram_id
@@ -75,8 +75,6 @@ func scanUserRows(rows *sql.Rows) (*user.User, error) {
 		&statusStr,
 		&u.UniversityCode,
 		&u.PendingPaymentID,
-		&u.FirstName,
-		&u.LastName,
 		&u.Username,
 		&u.Language,
 		&u.Timezone,

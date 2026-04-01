@@ -1,11 +1,16 @@
 package interfaces
 
-import "context"
+import (
+	"context"
+	"io"
+)
 
 // ── External Service Contracts ────────────────────────────────────────────────
 
 // StorageService abstracts S3-compatible object storage.
 type StorageService interface {
+	// UploadFile uploads a file to storage under the given key.
+	UploadFile(ctx context.Context, key string, body io.Reader, size int64, contentType string) error
 	// PresignURL generates a temporary pre-signed download URL for an S3 key.
 	PresignURL(ctx context.Context, s3Key string) (string, error)
 }

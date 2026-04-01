@@ -4,8 +4,10 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 
+	"github.com/vladkonst/mnemonics/internal/delivery/http/middleware"
 	"github.com/vladkonst/mnemonics/internal/delivery/http/respond"
 	paymentUC "github.com/vladkonst/mnemonics/internal/usecase/payment"
 )
@@ -32,6 +34,9 @@ func (h *PaymentHandler) CreateInvoice(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
 		return
 	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
 
 	var req createInvoiceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
@@ -55,9 +60,12 @@ func (h *PaymentHandler) CreateInvoice(w http.ResponseWriter, r *http.Request) {
 // GetPendingInvoice handles GET /api/v1/users/{user_id}/payment-invoices/pending.
 // Currently returns a stub — the real implementation would query the payment gateway.
 func (h *PaymentHandler) GetPendingInvoice(w http.ResponseWriter, r *http.Request) {
-	_, err := parseUserID(r)
+	userID, err := parseUserID(r)
 	if err != nil {
 		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
 		return
 	}
 
@@ -102,7 +110,9 @@ func (h *PaymentHandler) HandleWebhook(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Process the webhook; errors are logged but we always return 200.
-	_ = h.uc.HandleWebhook(r.Context(), body, signature, event)
+	if err := h.uc.HandleWebhook(r.Context(), body, signature, event); err != nil {
+		slog.Error("webhook processing failed", "error", err, "payment_id", req.PaymentID)
+	}
 
 	respond.JSON(w, http.StatusOK, map[string]string{"received": "true"})
 }

@@ -15,49 +15,49 @@ import (
 // StudentSummary is a brief summary of a student's state.
 type StudentSummary struct {
 	*user.User
-	CompletedThemes int
-	AverageScore    *int
+	CompletedThemes int  `json:"completed_themes"`
+	AverageScore    *int `json:"average_score,omitempty"`
 }
 
 // StudentsResult contains the list of students for a teacher.
 type StudentsResult struct {
-	TeacherID int64
-	Students  []*StudentSummary
-	Total     int
+	TeacherID int64             `json:"teacher_id"`
+	Students  []*StudentSummary `json:"students"`
+	Total     int               `json:"total"`
 }
 
 // ThemeProgressItem is a progress record for a single theme.
 type ThemeProgressItem struct {
-	ThemeID     int
-	ThemeName   string
-	Status      progress.Status
-	Score       *int
-	AttemptCount int
+	ThemeID      int             `json:"theme_id"`
+	ThemeName    string          `json:"theme_name"`
+	Status       progress.Status `json:"status"`
+	Score        *int            `json:"score,omitempty"`
+	AttemptCount int             `json:"attempt_count"`
 }
 
 // StudentProgressResult contains a detailed progress view for a specific student.
 type StudentProgressResult struct {
-	Student         *user.User
-	CompletedThemes int
-	TotalThemes     int
-	AverageScore    *int
-	ThemeProgress   []*ThemeProgressItem
+	Student         *user.User           `json:"student"`
+	CompletedThemes int                  `json:"completed_themes"`
+	TotalThemes     int                  `json:"total_themes"`
+	AverageScore    *int                 `json:"average_score,omitempty"`
+	ThemeProgress   []*ThemeProgressItem `json:"theme_progress"`
 }
 
 // GroupStatItem is a per-student summary row for teacher statistics.
 type GroupStatItem struct {
-	Student         *user.User
-	CompletedThemes int
-	AverageScore    *int
+	Student         *user.User `json:"student"`
+	CompletedThemes int        `json:"completed_themes"`
+	AverageScore    *int       `json:"average_score,omitempty"`
 }
 
 // GroupStatisticsResult contains group-level analytics for a teacher's students.
 type GroupStatisticsResult struct {
-	TeacherID       int64
-	TotalStudents   int
-	AverageScore    *int
-	CompletionRate  float64
-	StudentStats    []*GroupStatItem
+	TeacherID      int64            `json:"teacher_id"`
+	TotalStudents  int              `json:"total_students"`
+	AverageScore   *int             `json:"average_score,omitempty"`
+	CompletionRate float64          `json:"completion_rate"`
+	StudentStats   []*GroupStatItem `json:"student_stats"`
 }
 
 // ── UseCase ──────────────────────────────────────────────────────────────────

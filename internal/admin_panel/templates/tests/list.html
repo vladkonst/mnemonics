@@ -1,0 +1,33 @@
+{{template "base.html" .}}
+{{define "title"}}Тесты — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Тесты</h4>
+  <a href="/admin/tests/new" class="btn btn-primary btn-sm"><i class="bi bi-plus"></i> Добавить</a>
+</div>
+<div class="card">
+  <table class="table table-hover mb-0">
+    <thead class="table-light"><tr>
+      <th>ID</th><th>Тема</th><th>Сложность</th><th>Проходной балл</th><th>Вопросов</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Tests}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td>{{.ThemeID}}</td>
+      <td>{{.Difficulty}}/5</td>
+      <td>{{.PassingScore}}%</td>
+      <td>{{len .Questions}}</td>
+      <td class="text-end">
+        <a href="/admin/tests/{{.ID}}/edit" class="btn btn-sm btn-outline-secondary">Изменить</a>
+        <form method="POST" action="/admin/tests/{{.ID}}/delete" class="d-inline" onsubmit="return confirm('Удалить тест?')">
+          <button class="btn btn-sm btn-outline-danger">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {{else}}<tr><td colspan="6" class="text-center text-muted py-4">Нет тестов</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

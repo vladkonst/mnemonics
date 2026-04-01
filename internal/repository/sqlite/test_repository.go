@@ -64,6 +64,47 @@ func (r *TestRepo) Create(ctx context.Context, t *content.Test) error {
 	return nil
 }
 
+func (r *TestRepo) Update(ctx context.Context, t *content.Test) (*content.Test, error) {
+	questionsJSON, err := json.Marshal(t.Questions)
+	if err != nil {
+		return nil, err
+	}
+	const q = `
+		UPDATE tests SET questions_json = ?, difficulty = ?, passing_score = ?,
+		                 shuffle_questions = ?, shuffle_answers = ?
+		WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, q,
+		string(questionsJSON), t.Difficulty, t.PassingScore,
+		boolToInt(t.ShuffleQuestions), boolToInt(t.ShuffleAnswers), t.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, apperrors.ErrNotFound
+	}
+	return t, nil
+}
+
+func (r *TestRepo) Delete(ctx context.Context, id int) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM tests WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
 func scanTest(row *sql.Row) (*content.Test, error) {
 	var t content.Test
 	var questionsJSON string

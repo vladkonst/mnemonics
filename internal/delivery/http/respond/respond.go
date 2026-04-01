@@ -32,6 +32,8 @@ func ErrorFrom(w http.ResponseWriter, err error) {
 		Error(w, http.StatusConflict, "conflict", err.Error())
 	case apperrors.IsForbidden(err):
 		Error(w, http.StatusForbidden, "forbidden", err.Error())
+	case apperrors.IsBadRequest(err):
+		Error(w, http.StatusBadRequest, "bad_request", err.Error())
 	default:
 		Error(w, http.StatusInternalServerError, "internal_error", "internal server error")
 	}

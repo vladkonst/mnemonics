@@ -4,19 +4,17 @@ import "time"
 
 // User is the aggregate root for the user domain.
 type User struct {
-	TelegramID           int64
-	FirstName            string
-	LastName             *string
-	Username             *string
-	Role                 Role
-	SubscriptionStatus   SubscriptionStatus
-	UniversityCode       *string
-	PendingPaymentID     *string
-	Language             string
-	Timezone             string
-	NotificationsEnabled bool
-	LastActivityAt       *time.Time
-	CreatedAt            time.Time
+	TelegramID           int64              `json:"telegram_id"`
+	Username             *string            `json:"username,omitempty"`
+	Role                 Role               `json:"role"`
+	SubscriptionStatus   SubscriptionStatus `json:"subscription_status"`
+	UniversityCode       *string            `json:"university_code,omitempty"`
+	PendingPaymentID     *string            `json:"pending_payment_id,omitempty"`
+	Language             string             `json:"language"`
+	Timezone             string             `json:"timezone"`
+	NotificationsEnabled bool               `json:"notifications_enabled"`
+	LastActivityAt       *time.Time         `json:"last_activity_at,omitempty"`
+	CreatedAt            time.Time          `json:"created_at"`
 }
 
 // IsTeacher returns true if the user has the teacher role.

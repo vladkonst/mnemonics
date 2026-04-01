@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+	"strings"
 
 	"github.com/vladkonst/mnemonics/internal/domain/user"
 	"github.com/vladkonst/mnemonics/pkg/apperrors"
@@ -22,9 +23,9 @@ func (r *UserRepo) Create(ctx context.Context, u *user.User) error {
 	const q = `
 		INSERT INTO users (
 			telegram_id, role, subscription_status, university_code,
-			pending_payment_id, first_name, last_name, username,
+			pending_payment_id, username,
 			language, timezone, notifications_enabled, last_activity_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
 
 	_, err := r.db.ExecContext(ctx, q,
 		u.TelegramID,
@@ -32,8 +33,6 @@ func (r *UserRepo) Create(ctx context.Context, u *user.User) error {
 		string(u.SubscriptionStatus),
 		u.UniversityCode,
 		u.PendingPaymentID,
-		u.FirstName,
-		u.LastName,
 		u.Username,
 		u.Language,
 		u.Timezone,
@@ -46,7 +45,7 @@ func (r *UserRepo) Create(ctx context.Context, u *user.User) error {
 func (r *UserRepo) GetByID(ctx context.Context, telegramID int64) (*user.User, error) {
 	const q = `
 		SELECT telegram_id, role, subscription_status, university_code,
-		       pending_payment_id, first_name, last_name, username,
+		       pending_payment_id, username,
 		       language, timezone, notifications_enabled, last_activity_at, created_at
 		FROM users WHERE telegram_id = ?`
 
@@ -58,7 +57,7 @@ func (r *UserRepo) Update(ctx context.Context, u *user.User) error {
 	const q = `
 		UPDATE users SET
 			role = ?, subscription_status = ?, university_code = ?,
-			pending_payment_id = ?, first_name = ?, last_name = ?, username = ?,
+			pending_payment_id = ?, username = ?,
 			language = ?, timezone = ?, notifications_enabled = ?, last_activity_at = ?
 		WHERE telegram_id = ?`
 
@@ -67,8 +66,6 @@ func (r *UserRepo) Update(ctx context.Context, u *user.User) error {
 		string(u.SubscriptionStatus),
 		u.UniversityCode,
 		u.PendingPaymentID,
-		u.FirstName,
-		u.LastName,
 		u.Username,
 		u.Language,
 		u.Timezone,
@@ -77,6 +74,74 @@ func (r *UserRepo) Update(ctx context.Context, u *user.User) error {
 		u.TelegramID,
 	)
 	return err
+}
+
+func (r *UserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
+	var conditions []string
+	var args []interface{}
+
+	if role != "" {
+		conditions = append(conditions, "role = ?")
+		args = append(args, role)
+	}
+	if subStatus != "" {
+		conditions = append(conditions, "subscription_status = ?")
+		args = append(args, subStatus)
+	}
+
+	where := ""
+	if len(conditions) > 0 {
+		where = " WHERE " + strings.Join(conditions, " AND ")
+	}
+
+	var total int
+	countArgs := make([]interface{}, len(args))
+	copy(countArgs, args)
+	if err := r.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM users"+where, countArgs...).Scan(&total); err != nil {
+		return nil, 0, err
+	}
+
+	selectQ := `SELECT telegram_id, role, subscription_status, university_code,
+		       pending_payment_id, username,
+		       language, timezone, notifications_enabled, last_activity_at, created_at
+		FROM users` + where + " LIMIT ? OFFSET ?"
+	args = append(args, limit, offset)
+
+	rows, err := r.db.QueryContext(ctx, selectQ, args...)
+	if err != nil {
+		return nil, 0, err
+	}
+	defer rows.Close()
+
+	var users []*user.User
+	for rows.Next() {
+		var u user.User
+		var roleStr, statusStr string
+		var notifInt int
+		if err := rows.Scan(
+			&u.TelegramID,
+			&roleStr,
+			&statusStr,
+			&u.UniversityCode,
+			&u.PendingPaymentID,
+			&u.Username,
+			&u.Language,
+			&u.Timezone,
+			&notifInt,
+			&u.LastActivityAt,
+			&u.CreatedAt,
+		); err != nil {
+			return nil, 0, err
+		}
+		u.Role = user.Role(roleStr)
+		u.SubscriptionStatus = user.SubscriptionStatus(statusStr)
+		u.NotificationsEnabled = notifInt != 0
+		users = append(users, &u)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, 0, err
+	}
+	return users, total, nil
 }
 
 func (r *UserRepo) Exists(ctx context.Context, telegramID int64) (bool, error) {
@@ -101,8 +166,6 @@ func scanUser(row *sql.Row) (*user.User, error) {
 		&statusStr,
 		&u.UniversityCode,
 		&u.PendingPaymentID,
-		&u.FirstName,
-		&u.LastName,
 		&u.Username,
 		&u.Language,
 		&u.Timezone,

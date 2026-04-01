@@ -36,7 +36,6 @@ func TestUserRepository(t *testing.T) {
 	t.Run("Create and GetByID", func(t *testing.T) {
 		u := &user.User{
 			TelegramID:           12345,
-			FirstName:            "Alice",
 			Role:                 user.RoleStudent,
 			SubscriptionStatus:   user.SubscriptionStatusInactive,
 			Language:             "ru",
@@ -51,9 +50,6 @@ func TestUserRepository(t *testing.T) {
 		got, err := repo.GetByID(ctx, 12345)
 		if err != nil {
 			t.Fatalf("GetByID: %v", err)
-		}
-		if got.FirstName != "Alice" {
-			t.Errorf("expected FirstName Alice, got %s", got.FirstName)
 		}
 		if got.Role != user.RoleStudent {
 			t.Errorf("expected role student, got %s", got.Role)
@@ -307,7 +303,7 @@ func TestProgressRepository(t *testing.T) {
 	progressRepo := sqlite.NewProgressRepo(db)
 
 	u := &user.User{
-		TelegramID: 111, FirstName: "Bob",
+		TelegramID: 111,
 		Role: user.RoleStudent, SubscriptionStatus: user.SubscriptionStatusInactive,
 		Language: "ru", Timezone: "UTC", NotificationsEnabled: true,
 	}
@@ -407,7 +403,7 @@ func TestPromoCodeRepository(t *testing.T) {
 	// Create teacher user first (FK constraint)
 	userRepo := sqlite.NewUserRepo(db)
 	teacher := &user.User{
-		TelegramID: 999, FirstName: "Teacher",
+		TelegramID: 999,
 		Role: user.RoleTeacher, SubscriptionStatus: user.SubscriptionStatusInactive,
 		Language: "ru", Timezone: "UTC", NotificationsEnabled: true,
 	}

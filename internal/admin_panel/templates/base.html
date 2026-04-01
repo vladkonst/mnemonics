@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>{{block "title" .}}Mnemo Admin{{end}}</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.0/font/bootstrap-icons.css">
+  <style>
+    body { background: #f4f6f9; }
+    .sidebar { min-height: 100vh; background: #343a40; }
+    .sidebar .nav-link { color: #adb5bd; }
+    .sidebar .nav-link:hover, .sidebar .nav-link.active { color: #fff; background: #495057; border-radius: 4px; }
+    .sidebar .nav-link i { margin-right: 8px; }
+    .content-wrapper { padding: 24px; }
+    .card { border: none; box-shadow: 0 1px 3px rgba(0,0,0,.12); }
+    .stat-card { border-left: 4px solid; }
+    .stat-card.blue { border-color: #0d6efd; }
+    .stat-card.green { border-color: #198754; }
+    .stat-card.orange { border-color: #fd7e14; }
+    .stat-card.red { border-color: #dc3545; }
+    .stat-card.purple { border-color: #6f42c1; }
+  </style>
+</head>
+<body>
+<div class="d-flex">
+  <div class="sidebar p-3" style="width:240px;min-width:240px;">
+    <div class="text-white fw-bold fs-5 mb-4 px-2">🧠 Mnemo Admin</div>
+    <nav class="nav flex-column gap-1">
+      <a href="/admin/" class="nav-link {{if eq .Active "dashboard"}}active{{end}}"><i class="bi bi-speedometer2"></i>Дашборд</a>
+      <div class="text-muted small px-2 mt-3 mb-1">КОНТЕНТ</div>
+      <a href="/admin/modules" class="nav-link {{if eq .Active "modules"}}active{{end}}"><i class="bi bi-collection"></i>Модули</a>
+      <a href="/admin/themes" class="nav-link {{if eq .Active "themes"}}active{{end}}"><i class="bi bi-book"></i>Темы</a>
+      <a href="/admin/mnemonics" class="nav-link {{if eq .Active "mnemonics"}}active{{end}}"><i class="bi bi-card-text"></i>Мнемоники</a>
+      <a href="/admin/tests" class="nav-link {{if eq .Active "tests"}}active{{end}}"><i class="bi bi-check2-square"></i>Тесты</a>
+      <div class="text-muted small px-2 mt-3 mb-1">ПОЛЬЗОВАТЕЛИ</div>
+      <a href="/admin/users" class="nav-link {{if eq .Active "users"}}active{{end}}"><i class="bi bi-people"></i>Пользователи</a>
+      <a href="/admin/promo-codes" class="nav-link {{if eq .Active "promo_codes"}}active{{end}}"><i class="bi bi-tag"></i>Промокоды</a>
+      <div class="mt-4">
+        <a href="/admin/logout" class="nav-link text-danger"><i class="bi bi-box-arrow-right"></i>Выйти</a>
+      </div>
+    </nav>
+  </div>
+  <div class="flex-grow-1 content-wrapper">
+    {{if .Flash}}<div class="alert alert-{{.FlashType}} alert-dismissible fade show" role="alert">
+      {{.Flash}}<button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+    </div>{{end}}
+    {{block "content" .}}{{end}}
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+{{block "scripts" .}}{{end}}
+</body>
+</html>

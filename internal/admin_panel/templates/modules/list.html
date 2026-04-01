@@ -1,0 +1,33 @@
+{{template "base.html" .}}
+{{define "title"}}Модули — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Модули</h4>
+  <a href="/admin/modules/new" class="btn btn-primary btn-sm"><i class="bi bi-plus"></i> Добавить</a>
+</div>
+<div class="card">
+  <table class="table table-hover mb-0">
+    <thead class="table-light"><tr>
+      <th>ID</th><th>Название</th><th>Порядок</th><th>Заблокирован</th><th>Эмодзи</th><th></th>
+    </tr></thead>
+    <tbody>
+    {{range .Modules}}
+    <tr>
+      <td>{{.ID}}</td>
+      <td>{{.Name}}</td>
+      <td>{{.OrderNum}}</td>
+      <td>{{if .IsLocked}}<span class="badge bg-warning">Да</span>{{else}}<span class="badge bg-success">Нет</span>{{end}}</td>
+      <td>{{if .IconEmoji}}{{deref .IconEmoji}}{{end}}</td>
+      <td class="text-end">
+        <a href="/admin/modules/{{.ID}}/edit" class="btn btn-sm btn-outline-secondary">Изменить</a>
+        <form method="POST" action="/admin/modules/{{.ID}}/delete" class="d-inline" onsubmit="return confirm('Удалить модуль?')">
+          <button class="btn btn-sm btn-outline-danger">Удалить</button>
+        </form>
+      </td>
+    </tr>
+    {{else}}<tr><td colspan="6" class="text-center text-muted py-4">Нет модулей</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+</div>
+{{end}}

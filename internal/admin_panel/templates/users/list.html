@@ -1,0 +1,42 @@
+{{template "base.html" .}}
+{{define "title"}}Пользователи — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex justify-content-between align-items-center mb-3">
+  <h4>Пользователи</h4>
+  <form class="d-flex gap-2" method="GET" action="/admin/users">
+    <select name="role" class="form-select form-select-sm" style="width:auto">
+      <option value="">Все роли</option>
+      <option value="student" {{if eq .Filter.Role "student"}}selected{{end}}>Студент</option>
+      <option value="teacher" {{if eq .Filter.Role "teacher"}}selected{{end}}>Преподаватель</option>
+    </select>
+    <select name="subscription_status" class="form-select form-select-sm" style="width:auto">
+      <option value="">Все статусы</option>
+      <option value="active" {{if eq .Filter.SubStatus "active"}}selected{{end}}>Активна</option>
+      <option value="inactive" {{if eq .Filter.SubStatus "inactive"}}selected{{end}}>Неактивна</option>
+      <option value="expired" {{if eq .Filter.SubStatus "expired"}}selected{{end}}>Истекла</option>
+    </select>
+    <button type="submit" class="btn btn-sm btn-secondary">Фильтр</button>
+  </form>
+</div>
+<div class="card">
+  <table class="table table-hover mb-0">
+    <thead class="table-light"><tr>
+      <th>Telegram ID</th><th>Имя</th><th>Username</th><th>Роль</th><th>Подписка</th><th>Зарегистрирован</th>
+    </tr></thead>
+    <tbody>
+    {{range .Users}}
+    <tr>
+      <td><code>{{.TelegramID}}</code></td>
+      <td>{{.FirstName}} {{if .LastName}}{{deref .LastName}}{{end}}</td>
+      <td>{{if .Username}}@{{deref .Username}}{{else}}—{{end}}</td>
+      <td>{{if eq (string .Role) "teacher"}}<span class="badge bg-primary">teacher</span>{{else}}<span class="badge bg-secondary">student</span>{{end}}</td>
+      <td>{{if eq (string .SubscriptionStatus) "active"}}<span class="badge bg-success">active</span>{{else if eq (string .SubscriptionStatus) "expired"}}<span class="badge bg-warning">expired</span>{{else}}<span class="badge bg-light text-dark">inactive</span>{{end}}</td>
+      <td>{{.CreatedAt.Format "02.01.2006"}}</td>
+    </tr>
+    {{else}}<tr><td colspan="6" class="text-center text-muted py-4">Нет пользователей</td></tr>
+    {{end}}
+    </tbody>
+  </table>
+  <div class="p-3 text-muted small">Всего: {{.Total}}</div>
+</div>
+{{end}}

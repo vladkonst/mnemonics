@@ -27,7 +27,7 @@ func NewUseCase(users interfaces.UserRepository, subscriptions interfaces.Subscr
 
 // Register creates a new user if they do not already exist.
 // Returns ErrAlreadyExists if the user is already registered.
-func (uc *UseCase) Register(ctx context.Context, telegramID int64, firstName, lastName, username string) (*user.User, error) {
+func (uc *UseCase) Register(ctx context.Context, telegramID int64, username string) (*user.User, error) {
 	exists, err := uc.users.Exists(ctx, telegramID)
 	if err != nil {
 		return nil, err
@@ -37,10 +37,6 @@ func (uc *UseCase) Register(ctx context.Context, telegramID int64, firstName, la
 	}
 
 	now := time.Now().UTC()
-	var lastNamePtr *string
-	if lastName != "" {
-		lastNamePtr = &lastName
-	}
 	var usernamePtr *string
 	if username != "" {
 		usernamePtr = &username
@@ -48,8 +44,6 @@ func (uc *UseCase) Register(ctx context.Context, telegramID int64, firstName, la
 
 	u := &user.User{
 		TelegramID:           telegramID,
-		FirstName:            firstName,
-		LastName:             lastNamePtr,
 		Username:             usernamePtr,
 		Role:                 user.RoleStudent,
 		SubscriptionStatus:   user.SubscriptionStatusInactive,
@@ -97,6 +91,34 @@ func (uc *UseCase) UpdateSettings(ctx context.Context, telegramID int64, languag
 		return nil, err
 	}
 	return u, nil
+}
+
+// UpdateProfile applies all provided fields to the user in a single DB write.
+func (uc *UseCase) UpdateProfile(ctx context.Context, telegramID int64, role *user.Role, language *string, notificationsEnabled *bool) (*user.User, error) {
+	u, err := uc.users.GetByID(ctx, telegramID)
+	if err != nil {
+		return nil, err
+	}
+
+	if role != nil {
+		u.SetRole(*role)
+	}
+	if language != nil {
+		u.Language = *language
+	}
+	if notificationsEnabled != nil {
+		u.NotificationsEnabled = *notificationsEnabled
+	}
+
+	if err := uc.users.Update(ctx, u); err != nil {
+		return nil, err
+	}
+	return u, nil
+}
+
+// GetByID returns the user profile for the given telegramID.
+func (uc *UseCase) GetByID(ctx context.Context, telegramID int64) (*user.User, error) {
+	return uc.users.GetByID(ctx, telegramID)
 }
 
 // GetSubscription returns the active subscription for a user, or ErrNotFound if none.

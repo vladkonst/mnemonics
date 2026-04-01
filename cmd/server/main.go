@@ -13,6 +13,8 @@ import (
 
 	deliveryHTTP "github.com/vladkonst/mnemonics/internal/delivery/http"
 	"github.com/vladkonst/mnemonics/internal/delivery/http/handlers"
+	"github.com/vladkonst/mnemonics/internal/domain/interfaces"
+	infraS3 "github.com/vladkonst/mnemonics/internal/infrastructure/s3"
 	"github.com/vladkonst/mnemonics/internal/infrastructure/stub"
 	"github.com/vladkonst/mnemonics/internal/repository/sqlite"
 	adminUC "github.com/vladkonst/mnemonics/internal/usecase/admin"
@@ -53,8 +55,21 @@ func main() {
 	subscriptionRepo := sqlite.NewSubscriptionRepo(db)
 	teacherStudentRepo := sqlite.NewTeacherStudentRepo(db)
 
-	// ── External Service Stubs ───────────────────────────────────────────────
-	storageSvc := stub.NewStorageService()
+	// ── External Services ────────────────────────────────────────────────────
+	var storageSvc interfaces.StorageService
+	if cfg.S3AccessKey != "" && cfg.S3SecretKey != "" {
+		storageSvc = infraS3.NewStorageService(infraS3.Config{
+			Endpoint:  cfg.S3Endpoint,
+			Bucket:    cfg.S3Bucket,
+			Region:    cfg.S3Region,
+			AccessKey: cfg.S3AccessKey,
+			SecretKey: cfg.S3SecretKey,
+		})
+		log.Info().Str("bucket", cfg.S3Bucket).Msg("using real S3 storage")
+	} else {
+		storageSvc = stub.NewStorageService(cfg.UploadsDir)
+		log.Info().Str("dir", cfg.UploadsDir).Msg("using local stub storage")
+	}
 	paymentSvc := stub.NewPaymentService()
 	notificationSvc := stub.NewNotificationService()
 
@@ -111,6 +126,7 @@ func main() {
 		testRepo,
 		promoCodeRepo,
 		userRepo,
+		db,
 	)
 
 	// ── Handlers ─────────────────────────────────────────────────────────────
@@ -120,7 +136,7 @@ func main() {
 	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionUseCase)
 	paymentHandler := handlers.NewPaymentHandler(paymentUseCase)
 	teacherHandler := handlers.NewTeacherHandler(teacherUseCase)
-	adminHandler := handlers.NewAdminHandler(adminUseCase)
+	adminHandler := handlers.NewAdminHandler(adminUseCase, storageSvc, cfg.UploadsDir)
 
 	// ── Router ───────────────────────────────────────────────────────────────
 	router := deliveryHTTP.NewRouter(

@@ -1,0 +1,45 @@
+{{template "base.html" .}}
+{{define "title"}}{{if .Test}}Редактировать{{else}}Создать{{end}} тест — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex align-items-center mb-3">
+  <a href="/admin/tests" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h4 class="mb-0">{{if .Test}}Редактировать тест{{else}}Новый тест{{end}}</h4>
+</div>
+<div class="card p-4" style="max-width:700px">
+  <form method="POST" action="{{if .Test}}/admin/tests/{{.Test.ID}}/edit{{else}}/admin/tests/new{{end}}">
+    <div class="mb-3">
+      <label class="form-label">Тема *</label>
+      <select name="theme_id" class="form-select" required>
+        <option value="">Выберите тему</option>
+        {{range .Themes}}<option value="{{.ID}}" {{if $.Test}}{{if eq $.Test.ThemeID .ID}}selected{{end}}{{end}}>{{.Name}} (модуль {{.ModuleID}})</option>{{end}}
+      </select>
+    </div>
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Сложность (1-5)</label>
+        <input type="number" name="difficulty" class="form-control" min="1" max="5" value="{{if .Test}}{{.Test.Difficulty}}{{else}}3{{end}}">
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Проходной балл (%)</label>
+        <input type="number" name="passing_score" class="form-control" min="0" max="100" value="{{if .Test}}{{.Test.PassingScore}}{{else}}70{{end}}">
+      </div>
+    </div>
+    <div class="mb-3 d-flex gap-4">
+      <div class="form-check">
+        <input type="checkbox" name="shuffle_questions" id="sq" class="form-check-input" value="1" {{if .Test}}{{if .Test.ShuffleQuestions}}checked{{end}}{{end}}>
+        <label class="form-check-label" for="sq">Перемешать вопросы</label>
+      </div>
+      <div class="form-check">
+        <input type="checkbox" name="shuffle_answers" id="sa" class="form-check-input" value="1" {{if .Test}}{{if .Test.ShuffleAnswers}}checked{{end}}{{end}}>
+        <label class="form-check-label" for="sa">Перемешать ответы</label>
+      </div>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Вопросы (JSON) *</label>
+      <textarea name="questions_json" class="form-control font-monospace" rows="15" required>{{.QuestionsJSON}}</textarea>
+      <div class="form-text">Формат: <code>[{"id":1,"text":"...","type":"multiple_choice","options":["A","B"],"correct_answer":"A","order_num":1}]</code></div>
+    </div>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </form>
+</div>
+{{end}}

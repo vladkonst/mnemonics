@@ -92,6 +92,28 @@ func (r *ModuleRepo) Update(ctx context.Context, m *content.Module) error {
 	return err
 }
 
+func (r *ModuleRepo) Delete(ctx context.Context, id int) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM modules WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ModuleRepo) GetMaxOrderNum(ctx context.Context) (int, error) {
+	var n int
+	row := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(order_num), 0) FROM modules`)
+	err := row.Scan(&n)
+	return n, err
+}
+
 // scanModule scans a module from sql.Rows.
 func scanModule(rows *sql.Rows) (*content.Module, error) {
 	var m content.Module

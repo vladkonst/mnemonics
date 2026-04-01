@@ -18,44 +18,44 @@ import (
 // ModuleWithProgress enriches a Module with the user's completion data.
 type ModuleWithProgress struct {
 	*content.Module
-	TotalThemes     int
-	CompletedThemes int
-	IsAccessible    bool
+	TotalThemes     int  `json:"total_themes"`
+	CompletedThemes int  `json:"completed_themes"`
+	IsAccessible    bool `json:"is_accessible"`
 }
 
 // ThemeWithAccess enriches a Theme with access and completion information.
 type ThemeWithAccess struct {
 	*content.Theme
-	IsAccessible bool
-	IsCompleted  bool
-	Score        *int
-	LockedReason *string
+	IsAccessible bool    `json:"is_accessible"`
+	IsCompleted  bool    `json:"is_completed"`
+	Score        *int    `json:"score,omitempty"`
+	LockedReason *string `json:"locked_reason,omitempty"`
 }
 
 // ModuleThemesResult is the response for listing themes in a module.
 type ModuleThemesResult struct {
-	ModuleID   int
-	ModuleName string
-	Themes     []*ThemeWithAccess
+	ModuleID   int                `json:"module_id"`
+	ModuleName string             `json:"module_name"`
+	Themes     []*ThemeWithAccess `json:"themes"`
 }
 
 // StudySessionResult is the response when starting a study session.
 type StudySessionResult struct {
-	SessionID     string // UUID
-	Theme         *content.Theme
-	Mnemonics     []*content.Mnemonic
-	TestAvailable bool
-	TestID        *int
+	SessionID     string              `json:"session_id"`
+	Theme         *content.Theme      `json:"theme"`
+	Mnemonics     []*content.Mnemonic `json:"mnemonics"`
+	TestAvailable bool                `json:"test_available"`
+	TestID        *int                `json:"test_id,omitempty"`
 }
 
 // AccessResult carries the outcome of a theme access check.
 type AccessResult struct {
-	Accessible        bool
-	AccessType        string // "subscription" or "sequential"
-	Reason            *string
-	RequiredThemeID   *int
-	RequiredThemeName *string
-	RequiredAction    *string
+	Accessible        bool    `json:"accessible"`
+	AccessType        string  `json:"access_type"`
+	Reason            *string `json:"reason,omitempty"`
+	RequiredThemeID   *int    `json:"required_theme_id,omitempty"`
+	RequiredThemeName *string `json:"required_theme_name,omitempty"`
+	RequiredAction    *string `json:"required_action,omitempty"`
 }
 
 // ── UseCase ──────────────────────────────────────────────────────────────────
@@ -175,6 +175,49 @@ func (uc *UseCase) GetModuleThemes(ctx context.Context, moduleID int, userID int
 		ModuleName: mod.Name,
 		Themes:     enriched,
 	}, nil
+}
+
+// GetModule returns a single module by ID.
+func (uc *UseCase) GetModule(ctx context.Context, moduleID int) (*content.Module, error) {
+	return uc.modules.GetByID(ctx, moduleID)
+}
+
+// GetTheme returns a theme with its mnemonics.
+func (uc *UseCase) GetTheme(ctx context.Context, themeID int) (*StudySessionResult, error) {
+	theme, err := uc.themes.GetByID(ctx, themeID)
+	if err != nil {
+		return nil, err
+	}
+
+	mnems, err := uc.mnemonics.GetByThemeID(ctx, themeID)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range mnems {
+		if m.Type == content.MnemonicTypeImage && m.S3ImageKey != nil {
+			url, err := uc.storage.PresignURL(ctx, *m.S3ImageKey)
+			if err != nil {
+				return nil, fmt.Errorf("presign URL for mnemonic %d: %w", m.ID, err)
+			}
+			presignedURL := url
+			m.S3ImageKey = &presignedURL
+		}
+	}
+
+	test, err := uc.tests.GetByThemeID(ctx, themeID)
+	if err != nil && !apperrors.IsNotFound(err) {
+		return nil, err
+	}
+
+	result := &StudySessionResult{
+		Theme:         theme,
+		Mnemonics:     mnems,
+		TestAvailable: test != nil,
+	}
+	if test != nil {
+		result.TestID = &test.ID
+	}
+	return result, nil
 }
 
 // CheckThemeAccess determines whether a user may access a given theme.

@@ -4,6 +4,7 @@ package subscription
 import (
 	"context"
 	"fmt"
+	"strings"
 	"time"
 
 	"github.com/vladkonst/mnemonics/internal/domain/interfaces"
@@ -39,6 +40,8 @@ func NewUseCase(
 
 // ActivatePromoCode assigns a pending promo code to a teacher (teacher claims the code).
 func (uc *UseCase) ActivatePromoCode(ctx context.Context, teacherID int64, code string) (*subscription.PromoCode, error) {
+	code = strings.ToUpper(code)
+
 	// Verify the teacher exists and is a teacher.
 	u, err := uc.users.GetByID(ctx, teacherID)
 	if err != nil {
@@ -65,6 +68,8 @@ func (uc *UseCase) ActivatePromoCode(ctx context.Context, teacherID int64, code 
 
 // CreatePromoSubscription allows a student to join via a promo code.
 func (uc *UseCase) CreatePromoSubscription(ctx context.Context, userID int64, code string) (*subscription.Subscription, error) {
+	code = strings.ToUpper(code)
+
 	// Check for existing active subscription.
 	existing, err := uc.subscriptions.GetActiveByUserID(ctx, userID)
 	if err != nil && !apperrors.IsNotFound(err) {
@@ -79,11 +84,13 @@ func (uc *UseCase) CreatePromoSubscription(ctx context.Context, userID int64, co
 		return nil, err
 	}
 
-	if err := promo.Consume(); err != nil {
+	// Validate promo before consuming (business rules check without decrement).
+	if err := promo.IsValidForStudent(); err != nil {
 		return nil, err
 	}
 
-	if err := uc.promoCodes.Update(ctx, promo); err != nil {
+	// Atomically decrement remaining to prevent race conditions.
+	if err := uc.promoCodes.ConsumeOne(ctx, code); err != nil {
 		return nil, err
 	}
 

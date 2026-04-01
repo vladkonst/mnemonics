@@ -1,0 +1,46 @@
+{{template "base.html" .}}
+{{define "title"}}{{if .Theme}}Редактировать{{else}}Создать{{end}} тему — Mnemo Admin{{end}}
+{{define "content"}}
+<div class="d-flex align-items-center mb-3">
+  <a href="/admin/themes" class="btn btn-sm btn-outline-secondary me-2"><i class="bi bi-arrow-left"></i></a>
+  <h4 class="mb-0">{{if .Theme}}Редактировать тему{{else}}Новая тема{{end}}</h4>
+</div>
+<div class="card p-4" style="max-width:600px">
+  <form method="POST" action="{{if .Theme}}/admin/themes/{{.Theme.ID}}/edit{{else}}/admin/themes/new{{end}}">
+    <div class="mb-3">
+      <label class="form-label">Модуль *</label>
+      <select name="module_id" class="form-select" required>
+        <option value="">Выберите модуль</option>
+        {{range .Modules}}<option value="{{.ID}}" {{if $.Theme}}{{if eq $.Theme.ModuleID .ID}}selected{{end}}{{end}}>{{.Name}}</option>{{end}}
+      </select>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Название *</label>
+      <input type="text" name="name" class="form-control" value="{{if .Theme}}{{.Theme.Name}}{{end}}" required>
+    </div>
+    <div class="mb-3">
+      <label class="form-label">Описание</label>
+      <textarea name="description" class="form-control" rows="3">{{if .Theme}}{{if .Theme.Description}}{{deref .Theme.Description}}{{end}}{{end}}</textarea>
+    </div>
+    <div class="row">
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Порядок</label>
+        <input type="number" name="order_num" class="form-control" value="{{if .Theme}}{{.Theme.OrderNum}}{{else}}1{{end}}">
+      </div>
+      <div class="col-md-6 mb-3">
+        <label class="form-label">Время (мин)</label>
+        <input type="number" name="estimated_time_minutes" class="form-control" value="{{if .Theme}}{{if .Theme.EstimatedTimeMinutes}}{{derefInt .Theme.EstimatedTimeMinutes}}{{end}}{{end}}">
+      </div>
+    </div>
+    <div class="mb-3 form-check">
+      <input type="checkbox" name="is_introduction" id="is_intro" class="form-check-input" value="1" {{if .Theme}}{{if .Theme.IsIntroduction}}checked{{end}}{{end}}>
+      <label class="form-check-label" for="is_intro">Это введение</label>
+    </div>
+    <div class="mb-3 form-check">
+      <input type="checkbox" name="is_locked" id="is_locked" class="form-check-input" value="1" {{if .Theme}}{{if .Theme.IsLocked}}checked{{end}}{{end}}>
+      <label class="form-check-label" for="is_locked">Заблокирована</label>
+    </div>
+    <button type="submit" class="btn btn-primary">Сохранить</button>
+  </form>
+</div>
+{{end}}

@@ -71,6 +71,48 @@ func (r *ThemeRepo) Create(ctx context.Context, t *content.Theme) error {
 	return nil
 }
 
+func (r *ThemeRepo) Update(ctx context.Context, t *content.Theme) (*content.Theme, error) {
+	const q = `
+		UPDATE themes SET name = ?, description = ?, order_num = ?, is_locked = ?, estimated_time_minutes = ?
+		WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, q,
+		t.Name, t.Description, t.OrderNum, boolToInt(t.IsLocked), t.EstimatedTimeMinutes, t.ID,
+	)
+	if err != nil {
+		return nil, err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return nil, err
+	}
+	if n == 0 {
+		return nil, apperrors.ErrNotFound
+	}
+	return t, nil
+}
+
+func (r *ThemeRepo) Delete(ctx context.Context, id int) error {
+	res, err := r.db.ExecContext(ctx, "DELETE FROM themes WHERE id = ?", id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return apperrors.ErrNotFound
+	}
+	return nil
+}
+
+func (r *ThemeRepo) GetMaxOrderNum(ctx context.Context, moduleID int) (int, error) {
+	var n int
+	row := r.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(order_num), 0) FROM themes WHERE module_id = ?`, moduleID)
+	err := row.Scan(&n)
+	return n, err
+}
+
 // GetPreviousTheme returns the theme with order_num = current theme's order_num - 1 in the same module.
 func (r *ThemeRepo) GetPreviousTheme(ctx context.Context, themeID int) (*content.Theme, error) {
 	const q = `

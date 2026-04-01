@@ -19,16 +19,16 @@ const (
 // PromoCode is an aggregate root with its own identity and lifecycle.
 // Lifecycle: pending → active → expired | deactivated
 type PromoCode struct {
-	Code               string
-	UniversityName     string
-	TeacherID          *int64
-	MaxActivations     int
-	Remaining          int
-	Status             PromoCodeStatus
-	ExpiresAt          *time.Time
-	CreatedByAdminID   *int64
-	ActivatedAt        *time.Time
-	CreatedAt          time.Time
+	Code             string          `json:"code"`
+	UniversityName   string          `json:"university_name"`
+	TeacherID        *int64          `json:"teacher_id,omitempty"`
+	MaxActivations   int             `json:"max_activations"`
+	Remaining        int             `json:"remaining"`
+	Status           PromoCodeStatus `json:"status"`
+	ExpiresAt        *time.Time      `json:"expires_at,omitempty"`
+	CreatedByAdminID *int64          `json:"created_by_admin_id,omitempty"`
+	ActivatedAt      *time.Time      `json:"activated_at,omitempty"`
+	CreatedAt        time.Time       `json:"created_at"`
 }
 
 // Activate assigns the promo code to a teacher (pending → active).
