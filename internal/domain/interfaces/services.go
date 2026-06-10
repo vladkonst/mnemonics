@@ -27,4 +27,6 @@ type PaymentService interface {
 type NotificationService interface {
 	// Send sends a text message to the specified Telegram user.
 	Send(ctx context.Context, telegramID int64, message string) error
+	// SendDocument sends a document (file) to the specified Telegram user.
+	SendDocument(ctx context.Context, telegramID int64, filename string, data []byte, caption string) error
 }

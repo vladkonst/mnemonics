@@ -7,6 +7,7 @@ import {
   required, EditButton, DeleteButton,
   useInput, InputProps, useRecordContext, useGetList,
 } from 'react-admin';
+import LinkedIdField from '../LinkedIdField';
 
 const typeChoices = [
   { id: 'text', name: 'Текст' },
@@ -56,13 +57,13 @@ const ImageUploadInput = (props: InputProps & { label?: string }) => {
       </div>
       <input type="file" accept="image/*" onChange={handleFileChange} />
       {localPreview && (
-        <img src={localPreview} alt="preview" style={{ maxHeight: 120, maxWidth: 200, display: 'block', marginTop: 8 }} />
+        <img src={localPreview} alt="Предпросмотр" style={{ maxHeight: 120, maxWidth: 200, display: 'block', marginTop: 8 }} />
       )}
       {!localPreview && existingKey && (
         <div style={{ marginTop: 8 }}>
           <img
             src={`/api/v1/uploads/${existingKey}`}
-            alt="preview"
+            alt="Предпросмотр"
             style={{ maxHeight: 120, maxWidth: 200, display: 'block', marginBottom: 4 }}
           />
           <span style={{ fontSize: 11, color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.4)' }}>{existingKey}</span>
@@ -79,7 +80,13 @@ const S3ImageLinkField = ({ source }: { source: string }) => {
   if (!record?.[source]) return <span style={{ color: 'rgba(0,0,0,0.3)' }}>—</span>;
   const key = record[source];
   return (
-    <a href={`/api/v1/uploads/${key}`} target="_blank" rel="noopener noreferrer" style={{ fontSize: 13 }}>
+    <a
+      href={`/api/v1/uploads/${key}`}
+      target="_blank"
+      rel="noopener noreferrer"
+      style={{ fontSize: 13 }}
+      onClick={(e) => e.stopPropagation()}
+    >
       {key}
     </a>
   );
@@ -132,13 +139,15 @@ export const MnemonicList = () => (
   <List sort={{ field: 'id', order: 'ASC' }}>
     <Datagrid>
       <NumberField source="id" label="ID" />
-      <NumberField source="theme_id" label="Тема ID" />
+      <LinkedIdField source="theme_id" reference="themes" label="Тема ID" />
       <TextField source="type" label="Тип" />
-      <TextField source="content_text" label="Текст" />
+      <TextField source="content_text" label="Мнемоника" />
+      <TextField source="term_ru" label="Термин (рус)" />
+      <TextField source="term_latin" label="Термин (лат)" />
       <S3ImageLinkField source="s3_image_key" />
       <DateField source="created_at" label="Создана" />
       <EditButton />
-      <DeleteButton />
+      <DeleteButton mutationMode="pessimistic" />
     </Datagrid>
   </List>
 );
@@ -151,7 +160,9 @@ export const MnemonicCreate = () => {
         <SimpleForm>
           <ThemeSelectInput />
           <SelectInput source="type" label="Тип" choices={typeChoices} validate={required()} />
-          <TextInput source="content_text" label="Текст" fullWidth multiline />
+          <TextInput source="content_text" label="Мнемоника" fullWidth multiline />
+          <TextInput source="term_ru" label="Термин на русском" fullWidth />
+          <TextInput source="term_latin" label="Термин на латинском" fullWidth />
           <ImageUploadInput source="s3_image_key" label="Изображение (загрузить в S3)" />
         </SimpleForm>
       </Create>
@@ -165,7 +176,9 @@ export const MnemonicEdit = () => {
     <PendingFileContext.Provider value={pendingFileRef}>
       <Edit transform={makeTransform(pendingFileRef)}>
         <SimpleForm>
-          <TextInput source="content_text" label="Текст" fullWidth multiline />
+          <TextInput source="content_text" label="Мнемоника" fullWidth multiline />
+          <TextInput source="term_ru" label="Термин на русском" fullWidth />
+          <TextInput source="term_latin" label="Термин на латинском" fullWidth />
           <ImageUploadInput source="s3_image_key" label="Изображение (загрузить в S3)" />
           <NumberInput source="order_num" label="Порядок" />
         </SimpleForm>

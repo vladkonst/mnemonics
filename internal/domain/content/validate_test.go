@@ -5,7 +5,7 @@ import (
 )
 
 func TestTest_Validate(t *testing.T) {
-	validQuestion := Question{ID: 1, Text: "Q?", Type: QuestionTypeMultipleChoice, CorrectAnswer: "A"}
+	validQuestion := Question{ID: 1, Text: "Q?", CorrectAnswer: "A"}
 
 	cases := []struct {
 		name    string

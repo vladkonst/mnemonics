@@ -17,9 +17,10 @@ type User struct {
 	CreatedAt            time.Time          `json:"created_at"`
 }
 
-// IsTeacher returns true if the user has the teacher role.
+// IsTeacher returns true if the user has teacher or manager role.
+// Managers are corporate plan owners with full teacher-level access.
 func (u *User) IsTeacher() bool {
-	return u.Role == RoleTeacher
+	return u.Role == RoleTeacher || u.Role == RoleManager
 }
 
 // HasActiveSubscription returns true if the user's subscription is active.

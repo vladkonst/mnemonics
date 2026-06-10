@@ -16,12 +16,12 @@ func NewTeacherStudentRepo(db *sql.DB) *TeacherStudentRepo {
 	return &TeacherStudentRepo{db: db}
 }
 
-func (r *TeacherStudentRepo) AddStudent(ctx context.Context, teacherID, studentID int64, promoCode string) error {
+func (r *TeacherStudentRepo) AddStudent(ctx context.Context, teacherID, studentID int64, joinRef string) error {
 	const q = `
-		INSERT OR IGNORE INTO teacher_promo_students (teacher_id, student_id, promo_code)
+		INSERT OR IGNORE INTO teacher_promo_students (teacher_id, student_id, join_ref)
 		VALUES (?, ?, ?)`
 
-	_, err := r.db.ExecContext(ctx, q, teacherID, studentID, promoCode)
+	_, err := r.db.ExecContext(ctx, q, teacherID, studentID, joinRef)
 	return err
 }
 

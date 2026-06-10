@@ -3,10 +3,8 @@ package admin
 import (
 	"context"
 	"testing"
-	"time"
 
 	"github.com/vladkonst/mnemonics/internal/domain/content"
-	"github.com/vladkonst/mnemonics/internal/domain/subscription"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
 	"github.com/vladkonst/mnemonics/pkg/apperrors"
 )
@@ -145,111 +143,51 @@ func (m *mockTestRepo) Update(ctx context.Context, t *content.Test) (*content.Te
 }
 func (m *mockTestRepo) Delete(ctx context.Context, id int) error { return nil }
 
-type mockPromoCodeRepo struct {
-	data map[string]*subscription.PromoCode
-}
-
-func newMockPromoCodeRepo() *mockPromoCodeRepo {
-	return &mockPromoCodeRepo{data: make(map[string]*subscription.PromoCode)}
-}
-func (m *mockPromoCodeRepo) GetByCode(ctx context.Context, code string) (*subscription.PromoCode, error) {
-	p, ok := m.data[code]
-	if !ok {
-		return nil, apperrors.ErrNotFound
-	}
-	return p, nil
-}
-func (m *mockPromoCodeRepo) Update(ctx context.Context, p *subscription.PromoCode) error {
-	m.data[p.Code] = p
-	return nil
-}
-func (m *mockPromoCodeRepo) Create(ctx context.Context, p *subscription.PromoCode) error {
-	m.data[p.Code] = p
-	return nil
-}
-func (m *mockPromoCodeRepo) Deactivate(ctx context.Context, code string) error {
-	p, ok := m.data[code]
-	if !ok {
-		return apperrors.ErrNotFound
-	}
-	p.Status = subscription.PromoCodeStatusDeactivated
-	return nil
-}
-func (m *mockPromoCodeRepo) GetByTeacherID(ctx context.Context, id int64) ([]*subscription.PromoCode, error) {
-	return nil, nil
-}
-func (m *mockPromoCodeRepo) ConsumeOne(ctx context.Context, code string) error { return nil }
-
 type mockUserRepo struct{}
 
 func (m *mockUserRepo) Create(ctx context.Context, u *user.User) error { return nil }
 func (m *mockUserRepo) GetByID(ctx context.Context, id int64) (*user.User, error) {
 	return nil, apperrors.ErrNotFound
 }
-func (m *mockUserRepo) Update(ctx context.Context, u *user.User) error             { return nil }
-func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error)         { return false, nil }
+func (m *mockUserRepo) Update(ctx context.Context, u *user.User) error     { return nil }
+func (m *mockUserRepo) Delete(ctx context.Context, id int64) error         { return nil }
+func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error) { return false, nil }
 func (m *mockUserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
 	return []*user.User{}, 0, nil
 }
 
+type mockModuleTestRepo struct{}
+
+func (m *mockModuleTestRepo) GetAll(ctx context.Context) ([]*content.ModuleTest, error) {
+	return nil, nil
+}
+func (m *mockModuleTestRepo) GetByModuleID(ctx context.Context, moduleID int) ([]*content.ModuleTest, error) {
+	return nil, nil
+}
+func (m *mockModuleTestRepo) GetByID(ctx context.Context, id int) (*content.ModuleTest, error) {
+	return nil, apperrors.ErrNotFound
+}
+func (m *mockModuleTestRepo) Create(ctx context.Context, t *content.ModuleTest) error { return nil }
+func (m *mockModuleTestRepo) Update(ctx context.Context, t *content.ModuleTest) (*content.ModuleTest, error) {
+	return t, nil
+}
+func (m *mockModuleTestRepo) Delete(ctx context.Context, id int) error { return nil }
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
-func newUC() (*UseCase, *mockModuleRepo, *mockThemeRepo, *mockMnemonicRepo, *mockTestRepo, *mockPromoCodeRepo) {
+func newUC() (*UseCase, *mockModuleRepo, *mockThemeRepo, *mockMnemonicRepo, *mockTestRepo) {
 	mods := newMockModuleRepo()
 	themes := newMockThemeRepo()
 	mnems := &mockMnemonicRepo{}
 	tests := &mockTestRepo{}
-	promos := newMockPromoCodeRepo()
-	uc := NewUseCase(mods, themes, mnems, tests, promos, &mockUserRepo{}, nil)
-	return uc, mods, themes, mnems, tests, promos
+	uc := NewUseCase(mods, themes, mnems, tests, &mockModuleTestRepo{}, &mockUserRepo{}, nil, nil, nil, nil)
+	return uc, mods, themes, mnems, tests
 }
 
 // ── tests ─────────────────────────────────────────────────────────────────────
 
-func TestCreatePromoCode(t *testing.T) {
-	uc, _, _, _, _, promos := newUC()
-
-	p, err := uc.CreatePromoCode(context.Background(), "TEST2024", "TestU", 10, nil)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if p.Code != "TEST2024" {
-		t.Errorf("Code = %q, want TEST2024", p.Code)
-	}
-	if p.Remaining != 10 {
-		t.Errorf("Remaining = %d, want 10", p.Remaining)
-	}
-	if p.Status != subscription.PromoCodeStatusPending {
-		t.Errorf("Status = %q, want pending", p.Status)
-	}
-
-	// With expiry
-	future := time.Now().Add(24 * time.Hour)
-	p2, err := uc.CreatePromoCode(context.Background(), "EXP2024", "U", 5, &future)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if p2.ExpiresAt == nil {
-		t.Error("ExpiresAt should be set")
-	}
-	_ = promos
-}
-
-func TestDeactivatePromoCode(t *testing.T) {
-	uc, _, _, _, _, promos := newUC()
-
-	promos.data["DEL"] = &subscription.PromoCode{Code: "DEL", Status: subscription.PromoCodeStatusActive}
-	err := uc.DeactivatePromoCode(context.Background(), "DEL")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if promos.data["DEL"].Status != subscription.PromoCodeStatusDeactivated {
-		t.Error("promo code should be deactivated")
-	}
-}
-
 func TestCreateModule(t *testing.T) {
-	uc, mods, _, _, _, _ := newUC()
+	uc, mods, _, _, _ := newUC()
 
 	m, err := uc.CreateModule(context.Background(), "Anatomy", "Study of the body", 1, false, nil)
 	if err != nil {
@@ -265,7 +203,7 @@ func TestCreateModule(t *testing.T) {
 }
 
 func TestCreateModule_EmptyDescription(t *testing.T) {
-	uc, _, _, _, _, _ := newUC()
+	uc, _, _, _, _ := newUC()
 
 	m, err := uc.CreateModule(context.Background(), "Bio", "", 1, false, nil)
 	if err != nil {
@@ -277,7 +215,7 @@ func TestCreateModule_EmptyDescription(t *testing.T) {
 }
 
 func TestUpdateModule_HappyPath(t *testing.T) {
-	uc, mods, _, _, _, _ := newUC()
+	uc, mods, _, _, _ := newUC()
 
 	_ , _ = uc.CreateModule(context.Background(), "Old", "Desc", 1, false, nil)
 	modID := 1
@@ -296,7 +234,7 @@ func TestUpdateModule_HappyPath(t *testing.T) {
 }
 
 func TestUpdateModule_NotFound(t *testing.T) {
-	uc, _, _, _, _, _ := newUC()
+	uc, _, _, _, _ := newUC()
 
 	_, err := uc.UpdateModule(context.Background(), 999, "X", "", 1, false, nil)
 	if !apperrors.IsNotFound(err) {
@@ -305,7 +243,7 @@ func TestUpdateModule_NotFound(t *testing.T) {
 }
 
 func TestCreateTheme(t *testing.T) {
-	uc, _, themes, _, _, _ := newUC()
+	uc, _, themes, _, _ := newUC()
 
 	th, err := uc.CreateTheme(context.Background(), 1, "Bones", "Skeleton", 1, true, false, nil)
 	if err != nil {
@@ -321,10 +259,10 @@ func TestCreateTheme(t *testing.T) {
 }
 
 func TestCreateMnemonic_Text(t *testing.T) {
-	uc, _, _, mnems, _, _ := newUC()
+	uc, _, _, mnems, _ := newUC()
 
 	text := "Remember: bones are hard"
-	m, err := uc.CreateMnemonic(context.Background(), 1, content.MnemonicTypeText, &text, nil, 1)
+	m, err := uc.CreateMnemonic(context.Background(), 1, content.MnemonicTypeText, &text, nil, nil, nil, 1)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -335,22 +273,22 @@ func TestCreateMnemonic_Text(t *testing.T) {
 }
 
 func TestCreateMnemonic_Invalid(t *testing.T) {
-	uc, _, _, _, _, _ := newUC()
+	uc, _, _, _, _ := newUC()
 
 	// text mnemonic with no text
-	_, err := uc.CreateMnemonic(context.Background(), 1, content.MnemonicTypeText, nil, nil, 1)
+	_, err := uc.CreateMnemonic(context.Background(), 1, content.MnemonicTypeText, nil, nil, nil, nil, 1)
 	if err == nil {
 		t.Error("expected validation error, got nil")
 	}
 }
 
 func TestCreateTest_Valid(t *testing.T) {
-	uc, _, _, _, tests, _ := newUC()
+	uc, _, _, _, tests := newUC()
 
 	questions := []content.Question{
-		{ID: 1, Text: "Q?", Type: content.QuestionTypeMultipleChoice, CorrectAnswer: "A", OrderNum: 1},
+		{ID: 1, Text: "Q?", CorrectAnswer: "A", OrderNum: 1},
 	}
-	test, err := uc.CreateTest(context.Background(), 1, 2, 70, false, false, questions)
+	test, err := uc.CreateTest(context.Background(), 1, 2, 70, false, questions)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -361,17 +299,17 @@ func TestCreateTest_Valid(t *testing.T) {
 }
 
 func TestCreateTest_Invalid(t *testing.T) {
-	uc, _, _, _, _, _ := newUC()
+	uc, _, _, _, _ := newUC()
 
 	// No questions
-	_, err := uc.CreateTest(context.Background(), 1, 2, 70, false, false, nil)
+	_, err := uc.CreateTest(context.Background(), 1, 2, 70, false, nil)
 	if err == nil {
 		t.Error("expected validation error, got nil")
 	}
 }
 
 func TestGetUsers_ReturnsEmpty(t *testing.T) {
-	uc, _, _, _, _, _ := newUC()
+	uc, _, _, _, _ := newUC()
 
 	users, total, err := uc.GetUsers(context.Background(), nil, nil, 10, 0)
 	if err != nil {

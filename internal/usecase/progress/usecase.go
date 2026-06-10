@@ -29,14 +29,23 @@ type ModuleSummary struct {
 	AverageScore    *int `json:"average_score,omitempty"`
 }
 
+// RecentActivityItem summarises a single recent progress event.
+type RecentActivityItem struct {
+	ThemeID     int             `json:"theme_id"`
+	ThemeName   string          `json:"theme_name"`
+	Status      progress.Status `json:"status"`
+	Score       *int            `json:"score,omitempty"`
+	CompletedAt interface{}     `json:"completed_at,omitempty"`
+}
+
 // UserProgressResult contains overall user progress statistics.
 type UserProgressResult struct {
-	UserID          int64                   `json:"user_id"`
-	TotalThemes     int                     `json:"total_themes"`
-	CompletedThemes int                     `json:"completed_themes"`
-	AverageScore    *int                    `json:"average_score,omitempty"`
-	RecentActivity  []*progress.UserProgress `json:"recent_activity"`
-	ModuleSummaries []*ModuleSummary         `json:"module_summaries"`
+	UserID          int64                 `json:"user_id"`
+	TotalThemes     int                   `json:"total_themes"`
+	CompletedThemes int                   `json:"completed_themes"`
+	AverageScore    *int                  `json:"average_score,omitempty"`
+	RecentActivity  []*RecentActivityItem `json:"recent_activity"`
+	ModuleSummaries []*ModuleSummary      `json:"module_summaries"`
 }
 
 // ModuleProgressResult contains per-module progress details.
@@ -154,12 +163,26 @@ func (uc *UseCase) GetUserProgress(ctx context.Context, userID int64) (*UserProg
 		recent = recent[len(recent)-10:]
 	}
 
+	recentItems := make([]*RecentActivityItem, 0, len(recent))
+	for _, p := range recent {
+		item := &RecentActivityItem{
+			ThemeID:     p.ThemeID,
+			Status:      p.Status,
+			Score:       p.Score,
+			CompletedAt: p.CompletedAt,
+		}
+		if t, err := uc.themes.GetByID(ctx, p.ThemeID); err == nil {
+			item.ThemeName = t.Name
+		}
+		recentItems = append(recentItems, item)
+	}
+
 	return &UserProgressResult{
 		UserID:          userID,
 		TotalThemes:     len(allProgress),
 		CompletedThemes: completed,
 		AverageScore:    avgScore,
-		RecentActivity:  recent,
+		RecentActivity:  recentItems,
 		ModuleSummaries: summaries,
 	}, nil
 }

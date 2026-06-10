@@ -5,32 +5,38 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math/rand"
 	"time"
 
 	"github.com/vladkonst/mnemonics/internal/domain/content"
+	"github.com/vladkonst/mnemonics/internal/domain/feedback"
 	"github.com/vladkonst/mnemonics/internal/domain/interfaces"
 	"github.com/vladkonst/mnemonics/internal/domain/subscription"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
+	"github.com/vladkonst/mnemonics/pkg/apperrors"
 )
 
 // AnalyticsResult holds aggregated system metrics.
 type AnalyticsResult struct {
 	TotalUsers          int `json:"total_users"`
 	ActiveSubscriptions int `json:"active_subscriptions"`
-	ActivePromoCodes    int `json:"active_promo_codes"`
+	ActiveInviteLinks   int `json:"active_invite_links"`
 	TotalModules        int `json:"total_modules"`
 	TotalTestAttempts   int `json:"total_test_attempts"`
 }
 
 // UseCase orchestrates admin operations.
 type UseCase struct {
-	modules    interfaces.ModuleRepository
-	themes     interfaces.ThemeRepository
-	mnemonics  interfaces.MnemonicRepository
-	tests      interfaces.TestRepository
-	promoCodes interfaces.PromoCodeRepository
-	users      interfaces.UserRepository
-	db         *sql.DB
+	modules         interfaces.ModuleRepository
+	themes          interfaces.ThemeRepository
+	mnemonics       interfaces.MnemonicRepository
+	tests           interfaces.TestRepository
+	moduleTests     interfaces.ModuleTestRepository
+	users           interfaces.UserRepository
+	teacherStudents interfaces.TeacherStudentRepository
+	feedbackRepo    interfaces.FeedbackRepository
+	inviteLinks     interfaces.InviteLinkRepository
+	db              *sql.DB
 }
 
 // NewUseCase creates a new admin UseCase.
@@ -39,43 +45,25 @@ func NewUseCase(
 	themes interfaces.ThemeRepository,
 	mnemonics interfaces.MnemonicRepository,
 	tests interfaces.TestRepository,
-	promoCodes interfaces.PromoCodeRepository,
+	moduleTests interfaces.ModuleTestRepository,
 	users interfaces.UserRepository,
+	teacherStudents interfaces.TeacherStudentRepository,
+	feedbackRepo interfaces.FeedbackRepository,
+	inviteLinks interfaces.InviteLinkRepository,
 	db *sql.DB,
 ) *UseCase {
 	return &UseCase{
-		modules:    modules,
-		themes:     themes,
-		mnemonics:  mnemonics,
-		tests:      tests,
-		promoCodes: promoCodes,
-		users:      users,
-		db:         db,
+		modules:         modules,
+		themes:          themes,
+		mnemonics:       mnemonics,
+		tests:           tests,
+		moduleTests:     moduleTests,
+		users:           users,
+		teacherStudents: teacherStudents,
+		feedbackRepo:    feedbackRepo,
+		inviteLinks:     inviteLinks,
+		db:              db,
 	}
-}
-
-// CreatePromoCode creates a new promo code in pending state.
-func (uc *UseCase) CreatePromoCode(ctx context.Context, code, universityName string, maxActivations int, expiresAt *time.Time) (*subscription.PromoCode, error) {
-	now := time.Now().UTC()
-	promo := &subscription.PromoCode{
-		Code:           code,
-		UniversityName: universityName,
-		MaxActivations: maxActivations,
-		Remaining:      maxActivations,
-		Status:         subscription.PromoCodeStatusPending,
-		ExpiresAt:      expiresAt,
-		CreatedAt:      now,
-	}
-
-	if err := uc.promoCodes.Create(ctx, promo); err != nil {
-		return nil, err
-	}
-	return promo, nil
-}
-
-// DeactivatePromoCode marks a promo code as deactivated.
-func (uc *UseCase) DeactivatePromoCode(ctx context.Context, code string) error {
-	return uc.promoCodes.Deactivate(ctx, code)
 }
 
 // CreateModule creates a new content module.
@@ -188,7 +176,7 @@ func (uc *UseCase) DeleteTheme(ctx context.Context, id int) error {
 }
 
 // CreateMnemonic creates a new mnemonic for a theme.
-func (uc *UseCase) CreateMnemonic(ctx context.Context, themeID int, typ content.MnemonicType, text, s3Key *string, orderNum int) (*content.Mnemonic, error) {
+func (uc *UseCase) CreateMnemonic(ctx context.Context, themeID int, typ content.MnemonicType, text, s3Key, termRu, termLatin *string, orderNum int) (*content.Mnemonic, error) {
 	if orderNum == 0 {
 		maxNum, err := uc.mnemonics.GetMaxOrderNum(ctx, themeID)
 		if err != nil {
@@ -202,6 +190,8 @@ func (uc *UseCase) CreateMnemonic(ctx context.Context, themeID int, typ content.
 		Type:        typ,
 		ContentText: text,
 		S3ImageKey:  s3Key,
+		TermRu:      termRu,
+		TermLatin:   termLatin,
 		OrderNum:    orderNum,
 		CreatedAt:   time.Now().UTC(),
 	}
@@ -217,11 +207,13 @@ func (uc *UseCase) CreateMnemonic(ctx context.Context, themeID int, typ content.
 }
 
 // UpdateMnemonic updates an existing mnemonic's editable fields.
-func (uc *UseCase) UpdateMnemonic(ctx context.Context, id int, contentText *string, s3Key *string, orderNum int) (*content.Mnemonic, error) {
+func (uc *UseCase) UpdateMnemonic(ctx context.Context, id int, contentText *string, s3Key, termRu, termLatin *string, orderNum int) (*content.Mnemonic, error) {
 	mn := &content.Mnemonic{
 		ID:          id,
 		ContentText: contentText,
 		S3ImageKey:  s3Key,
+		TermRu:      termRu,
+		TermLatin:   termLatin,
 		OrderNum:    orderNum,
 	}
 	return uc.mnemonics.Update(ctx, mn)
@@ -233,14 +225,13 @@ func (uc *UseCase) DeleteMnemonic(ctx context.Context, id int) error {
 }
 
 // CreateTest creates a new test for a theme.
-func (uc *UseCase) CreateTest(ctx context.Context, themeID, difficulty, passingScore int, shuffleQ, shuffleA bool, questions []content.Question) (*content.Test, error) {
+func (uc *UseCase) CreateTest(ctx context.Context, themeID, difficulty, passingScore int, shuffleQ bool, questions []content.Question) (*content.Test, error) {
 	t := &content.Test{
 		ThemeID:          themeID,
 		Questions:        questions,
 		Difficulty:       difficulty,
 		PassingScore:     passingScore,
 		ShuffleQuestions: shuffleQ,
-		ShuffleAnswers:   shuffleA,
 		CreatedAt:        time.Now().UTC(),
 	}
 
@@ -255,7 +246,7 @@ func (uc *UseCase) CreateTest(ctx context.Context, themeID, difficulty, passingS
 }
 
 // UpdateTest updates an existing test's editable fields.
-func (uc *UseCase) UpdateTest(ctx context.Context, id int, difficulty, passingScore int, shuffleQ, shuffleA bool, questions []content.Question) (*content.Test, error) {
+func (uc *UseCase) UpdateTest(ctx context.Context, id int, difficulty, passingScore int, shuffleQ bool, questions []content.Question) (*content.Test, error) {
 	t, err := uc.tests.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
@@ -264,7 +255,6 @@ func (uc *UseCase) UpdateTest(ctx context.Context, id int, difficulty, passingSc
 	t.Difficulty = difficulty
 	t.PassingScore = passingScore
 	t.ShuffleQuestions = shuffleQ
-	t.ShuffleAnswers = shuffleA
 	t.Questions = questions
 
 	return uc.tests.Update(ctx, t)
@@ -336,10 +326,10 @@ func (uc *UseCase) GetAllThemes(ctx context.Context) ([]*content.Theme, error) {
 // GetMnemonicByID returns a single mnemonic by ID.
 func (uc *UseCase) GetMnemonicByID(ctx context.Context, id int) (*content.Mnemonic, error) {
 	row := uc.db.QueryRowContext(ctx,
-		`SELECT id, theme_id, type, content_text, s3_image_key, order_num, created_at FROM mnemonics WHERE id = ?`, id)
+		`SELECT id, theme_id, type, content_text, s3_image_key, term_ru, term_latin, order_num, created_at FROM mnemonics WHERE id = ?`, id)
 	var m content.Mnemonic
 	var typeStr string
-	if err := row.Scan(&m.ID, &m.ThemeID, &typeStr, &m.ContentText, &m.S3ImageKey, &m.OrderNum, &m.CreatedAt); err != nil {
+	if err := row.Scan(&m.ID, &m.ThemeID, &typeStr, &m.ContentText, &m.S3ImageKey, &m.TermRu, &m.TermLatin, &m.OrderNum, &m.CreatedAt); err != nil {
 		return nil, err
 	}
 	m.Type = content.MnemonicType(typeStr)
@@ -349,7 +339,7 @@ func (uc *UseCase) GetMnemonicByID(ctx context.Context, id int) (*content.Mnemon
 // GetAllMnemonics returns all mnemonics ordered by theme and order_num.
 func (uc *UseCase) GetAllMnemonics(ctx context.Context) ([]*content.Mnemonic, error) {
 	rows, err := uc.db.QueryContext(ctx,
-		`SELECT id, theme_id, type, content_text, s3_image_key, order_num, created_at
+		`SELECT id, theme_id, type, content_text, s3_image_key, term_ru, term_latin, order_num, created_at
 		 FROM mnemonics ORDER BY theme_id, order_num`)
 	if err != nil {
 		return nil, err
@@ -359,7 +349,7 @@ func (uc *UseCase) GetAllMnemonics(ctx context.Context) ([]*content.Mnemonic, er
 	for rows.Next() {
 		var m content.Mnemonic
 		var typeStr string
-		if err := rows.Scan(&m.ID, &m.ThemeID, &typeStr, &m.ContentText, &m.S3ImageKey, &m.OrderNum, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ThemeID, &typeStr, &m.ContentText, &m.S3ImageKey, &m.TermRu, &m.TermLatin, &m.OrderNum, &m.CreatedAt); err != nil {
 			return nil, err
 		}
 		m.Type = content.MnemonicType(typeStr)
@@ -371,7 +361,7 @@ func (uc *UseCase) GetAllMnemonics(ctx context.Context) ([]*content.Mnemonic, er
 // GetAllTests returns all tests ordered by theme_id.
 func (uc *UseCase) GetAllTests(ctx context.Context) ([]*content.Test, error) {
 	rows, err := uc.db.QueryContext(ctx,
-		`SELECT id, theme_id, questions_json, difficulty, passing_score, shuffle_questions, shuffle_answers, created_at
+		`SELECT id, theme_id, questions_json, difficulty, passing_score, shuffle_questions, created_at
 		 FROM tests ORDER BY theme_id`)
 	if err != nil {
 		return nil, err
@@ -381,39 +371,14 @@ func (uc *UseCase) GetAllTests(ctx context.Context) ([]*content.Test, error) {
 	for rows.Next() {
 		var t content.Test
 		var qJSON string
-		var shuffleQInt, shuffleAInt int
+		var shuffleQInt int
 		if err := rows.Scan(&t.ID, &t.ThemeID, &qJSON, &t.Difficulty, &t.PassingScore,
-			&shuffleQInt, &shuffleAInt, &t.CreatedAt); err != nil {
+			&shuffleQInt, &t.CreatedAt); err != nil {
 			return nil, err
 		}
 		_ = json.Unmarshal([]byte(qJSON), &t.Questions)
 		t.ShuffleQuestions = shuffleQInt != 0
-		t.ShuffleAnswers = shuffleAInt != 0
 		list = append(list, &t)
-	}
-	return list, rows.Err()
-}
-
-// GetAllPromoCodes returns all promo codes ordered by created_at desc.
-func (uc *UseCase) GetAllPromoCodes(ctx context.Context) ([]*subscription.PromoCode, error) {
-	rows, err := uc.db.QueryContext(ctx,
-		`SELECT code, university_name, teacher_id, max_activations, remaining,
-		        status, expires_at, created_by_admin_id, activated_at, created_at
-		 FROM promo_codes ORDER BY created_at DESC`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var list []*subscription.PromoCode
-	for rows.Next() {
-		var p subscription.PromoCode
-		var statusStr string
-		if err := rows.Scan(&p.Code, &p.UniversityName, &p.TeacherID, &p.MaxActivations, &p.Remaining,
-			&statusStr, &p.ExpiresAt, &p.CreatedByAdminID, &p.ActivatedAt, &p.CreatedAt); err != nil {
-			return nil, err
-		}
-		p.Status = subscription.PromoCodeStatus(statusStr)
-		list = append(list, &p)
 	}
 	return list, rows.Err()
 }
@@ -457,6 +422,123 @@ func (uc *UseCase) UpdateUserState(ctx context.Context, telegramID int64, role *
 	return u, nil
 }
 
+func (uc *UseCase) DeleteUser(ctx context.Context, telegramID int64) error {
+	return uc.users.Delete(ctx, telegramID)
+}
+
+func (uc *UseCase) GetStudentsByTeacher(ctx context.Context, teacherID int64) ([]*user.User, error) {
+	return uc.teacherStudents.GetStudentsByTeacher(ctx, teacherID)
+}
+
+// CreateModuleTest creates a module test with manually specified questions.
+func (uc *UseCase) CreateModuleTest(ctx context.Context, moduleID int, name string, difficulty, passingScore int, shuffleQ bool, questions []content.Question) (*content.ModuleTest, error) {
+	t := &content.ModuleTest{
+		ModuleID:         moduleID,
+		Name:             name,
+		Questions:        questions,
+		Difficulty:       difficulty,
+		PassingScore:     passingScore,
+		ShuffleQuestions: shuffleQ,
+		CreatedAt:        time.Now().UTC(),
+	}
+	if err := t.Validate(); err != nil {
+		return nil, apperrors.New("bad_request", err.Error(), apperrors.ErrInvalidInput)
+	}
+	if err := uc.moduleTests.Create(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// GenerateModuleTest auto-generates a module test by sampling 50% of questions
+// from each theme's test within the module. Passing score is set to 100%.
+func (uc *UseCase) GenerateModuleTest(ctx context.Context, moduleID int) (*content.ModuleTest, error) {
+	module, err := uc.modules.GetByID(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+
+	themes, err := uc.themes.GetByModuleID(ctx, moduleID)
+	if err != nil {
+		return nil, err
+	}
+
+	var allQuestions []content.Question
+	maxID := 0
+	for _, th := range themes {
+		test, err := uc.tests.GetByThemeID(ctx, th.ID)
+		if err != nil {
+			// Theme may have no test yet — skip.
+			continue
+		}
+		pool := make([]content.Question, len(test.Questions))
+		copy(pool, test.Questions)
+		n := (len(pool)*50 + 99) / 100 // ceil of 50%
+		if n > len(pool) {
+			n = len(pool)
+		}
+		rand.Shuffle(len(pool), func(i, j int) { pool[i], pool[j] = pool[j], pool[i] })
+		allQuestions = append(allQuestions, pool[:n]...)
+	}
+
+	// Re-number question IDs sequentially within this test to avoid collisions.
+	for i := range allQuestions {
+		maxID++
+		allQuestions[i].ID = maxID
+	}
+
+	t := &content.ModuleTest{
+		ModuleID:         moduleID,
+		Name:             "Тест модуля \"" + module.Name + "\"",
+		Questions:        allQuestions,
+		Difficulty:       1,
+		PassingScore:     100,
+		ShuffleQuestions: true,
+		CreatedAt:        time.Now().UTC(),
+	}
+	if err := t.Validate(); err != nil {
+		return nil, apperrors.New("bad_request", err.Error(), apperrors.ErrInvalidInput)
+	}
+	if err := uc.moduleTests.Create(ctx, t); err != nil {
+		return nil, err
+	}
+	return t, nil
+}
+
+// UpdateModuleTest updates an existing module test.
+func (uc *UseCase) UpdateModuleTest(ctx context.Context, id int, name string, difficulty, passingScore int, shuffleQ bool, questions []content.Question) (*content.ModuleTest, error) {
+	t, err := uc.moduleTests.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	t.Name = name
+	t.Difficulty = difficulty
+	t.PassingScore = passingScore
+	t.ShuffleQuestions = shuffleQ
+	t.Questions = questions
+	return uc.moduleTests.Update(ctx, t)
+}
+
+// DeleteModuleTest deletes a module test by ID.
+func (uc *UseCase) DeleteModuleTest(ctx context.Context, id int) error {
+	return uc.moduleTests.Delete(ctx, id)
+}
+
+// GetModuleTestByID returns a single module test by ID.
+func (uc *UseCase) GetModuleTestByID(ctx context.Context, id int) (*content.ModuleTest, error) {
+	return uc.moduleTests.GetByID(ctx, id)
+}
+
+// GetModuleTestsByModule returns all module tests for a given module.
+func (uc *UseCase) GetModuleTestsByModule(ctx context.Context, moduleID int) ([]*content.ModuleTest, error) {
+	return uc.moduleTests.GetByModuleID(ctx, moduleID)
+}
+
+// GetAllModuleTests returns all module tests across all modules.
+func (uc *UseCase) GetAllModuleTests(ctx context.Context) ([]*content.ModuleTest, error) {
+	return uc.moduleTests.GetAll(ctx)
+}
+
 // GetAnalytics returns aggregated system metrics.
 func (uc *UseCase) GetAnalytics(ctx context.Context) (*AnalyticsResult, error) {
 	var result AnalyticsResult
@@ -467,7 +549,7 @@ func (uc *UseCase) GetAnalytics(ctx context.Context) (*AnalyticsResult, error) {
 	}{
 		{&result.TotalUsers, "SELECT COUNT(*) FROM users"},
 		{&result.ActiveSubscriptions, "SELECT COUNT(*) FROM subscriptions WHERE status = 'active'"},
-		{&result.ActivePromoCodes, "SELECT COUNT(*) FROM promo_codes WHERE status = 'active'"},
+		{&result.ActiveInviteLinks, "SELECT COUNT(*) FROM invite_links"},
 		{&result.TotalModules, "SELECT COUNT(*) FROM modules"},
 		{&result.TotalTestAttempts, "SELECT COUNT(*) FROM test_attempts"},
 	}
@@ -479,4 +561,36 @@ func (uc *UseCase) GetAnalytics(ctx context.Context) (*AnalyticsResult, error) {
 	}
 
 	return &result, nil
+}
+
+// GetFeedback returns a paginated list of all feedback entries.
+func (uc *UseCase) GetFeedback(ctx context.Context, limit, offset int) ([]*feedback.Feedback, int, error) {
+	return uc.feedbackRepo.GetAll(ctx, limit, offset)
+}
+
+// GetFeedbackByID returns a single feedback entry by ID.
+func (uc *UseCase) GetFeedbackByID(ctx context.Context, id int) (*feedback.Feedback, error) {
+	return uc.feedbackRepo.GetByID(ctx, id)
+}
+
+// GetInviteLinks returns a paginated list of all invite links.
+func (uc *UseCase) GetInviteLinks(ctx context.Context, limit, offset int) ([]*subscription.InviteLink, int, error) {
+	return uc.inviteLinks.GetAll(ctx, limit, offset)
+}
+
+// GetInviteLinkByID returns a single invite link with its activations.
+func (uc *UseCase) GetInviteLinkByID(ctx context.Context, id string) (*subscription.InviteLinkWithStats, error) {
+	link, err := uc.inviteLinks.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	acts, err := uc.inviteLinks.GetActivations(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	return &subscription.InviteLinkWithStats{
+		InviteLink:      *link,
+		ActivationCount: len(acts),
+		Activations:     acts,
+	}, nil
 }

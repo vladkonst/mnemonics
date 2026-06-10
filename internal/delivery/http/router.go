@@ -17,7 +17,9 @@ func NewRouter(
 	subscriptionH *handlers.SubscriptionHandler,
 	paymentH *handlers.PaymentHandler,
 	teacherH *handlers.TeacherHandler,
+	managerH *handlers.ManagerHandler,
 	adminH *handlers.AdminHandler,
+	feedbackH *handlers.FeedbackHandler,
 	adminToken string,
 	log zerolog.Logger,
 ) http.Handler {
@@ -52,24 +54,38 @@ func NewRouter(
 	authMux.HandleFunc("POST /api/v1/users/{user_id}/test-attempts", contentH.StartTestAttempt)
 	authMux.HandleFunc("PUT /api/v1/users/{user_id}/test-attempts/{attempt_id}", contentH.SubmitTestAttempt)
 	authMux.HandleFunc("GET /api/v1/users/{user_id}/themes/{theme_id}/access", contentH.CheckThemeAccess)
+	authMux.HandleFunc("POST /api/v1/users/{user_id}/module-test-attempts", contentH.StartModuleTestAttempt)
+	authMux.HandleFunc("PUT /api/v1/users/{user_id}/module-test-attempts/{attempt_id}", contentH.SubmitModuleTestAttempt)
 
 	// Progress
 	authMux.HandleFunc("GET /api/v1/users/{user_id}/progress", progressH.GetUserProgress)
 	authMux.HandleFunc("GET /api/v1/users/{user_id}/progress/modules/{module_id}", progressH.GetModuleProgress)
 
-	// Subscription / promo codes
-	authMux.HandleFunc("POST /api/v1/teachers/{teacher_id}/promo-codes", subscriptionH.ActivatePromoCode)
-	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/promo-codes", subscriptionH.GetTeacherPromoCodes)
+	// Subscription / invite links
+	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/invite-links", subscriptionH.GetTeacherInviteLinks)
 	authMux.HandleFunc("POST /api/v1/users/{user_id}/subscriptions", subscriptionH.CreateSubscription)
 
 	// Payment invoices
 	authMux.HandleFunc("POST /api/v1/users/{user_id}/payment-invoices", paymentH.CreateInvoice)
+	authMux.HandleFunc("POST /api/v1/users/{user_id}/corporate-purchases", paymentH.CreateCorporatePurchase)
 	authMux.HandleFunc("GET /api/v1/users/{user_id}/payment-invoices/pending", paymentH.GetPendingInvoice)
 
 	// Teacher
 	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/students", teacherH.GetStudents)
 	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/students/{student_id}/progress", teacherH.GetStudentProgress)
 	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/statistics", teacherH.GetStatistics)
+	authMux.HandleFunc("POST /api/v1/teachers/{teacher_id}/groups/claim", teacherH.ClaimCorporateGroup)
+	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/groups", teacherH.GetCorporateGroups)
+	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/groups/{group_id}/students", teacherH.GetCorporateGroupStudents)
+	authMux.HandleFunc("GET /api/v1/teachers/{teacher_id}/groups/{group_id}/statistics", teacherH.GetCorporateGroupStats)
+	authMux.HandleFunc("PATCH /api/v1/teachers/{teacher_id}/groups/{group_id}", teacherH.RenameCorporateGroup)
+
+	// Manager
+	authMux.HandleFunc("GET /api/v1/managers/{manager_id}/purchases", managerH.GetPurchases)
+	authMux.HandleFunc("GET /api/v1/managers/{manager_id}/purchases/{payment_id}/pdf", managerH.GetPurchasePDF)
+
+	// Feedback
+	authMux.HandleFunc("POST /api/v1/users/{user_id}/feedback", feedbackH.SubmitFeedback)
 
 	// Apply TelegramAuth middleware to authMux and mount on main mux.
 	telegramAuthHandler := middleware.TelegramAuth()(middleware.MaxBody(authMux))
@@ -79,9 +95,6 @@ func NewRouter(
 	adminMux := http.NewServeMux()
 
 	adminMux.HandleFunc("POST /api/v1/admin/upload", adminH.UploadImage)
-	adminMux.HandleFunc("POST /api/v1/admin/promo-codes", adminH.CreatePromoCode)
-	adminMux.HandleFunc("GET /api/v1/admin/promo-codes", adminH.GetAdminPromoCodes)
-	adminMux.HandleFunc("DELETE /api/v1/admin/promo-codes/{code}", adminH.DeactivatePromoCode)
 	adminMux.HandleFunc("POST /api/v1/admin/content/modules", adminH.CreateModule)
 	adminMux.HandleFunc("GET /api/v1/admin/content/modules", adminH.GetAdminModules)
 	adminMux.HandleFunc("GET /api/v1/admin/content/modules/{id}", adminH.GetAdminModule)
@@ -102,11 +115,28 @@ func NewRouter(
 	adminMux.HandleFunc("GET /api/v1/admin/content/tests/{id}", adminH.GetAdminTest)
 	adminMux.HandleFunc("PUT /api/v1/admin/content/tests/{id}", adminH.UpdateTest)
 	adminMux.HandleFunc("DELETE /api/v1/admin/content/tests/{id}", adminH.DeleteTest)
+	adminMux.HandleFunc("POST /api/v1/admin/content/module-tests", adminH.CreateModuleTest)
+	adminMux.HandleFunc("POST /api/v1/admin/content/module-tests/generate", adminH.GenerateModuleTest)
+	adminMux.HandleFunc("GET /api/v1/admin/content/module-tests", adminH.GetAdminModuleTests)
+	adminMux.HandleFunc("GET /api/v1/admin/content/module-tests/{id}", adminH.GetAdminModuleTest)
+	adminMux.HandleFunc("PUT /api/v1/admin/content/module-tests/{id}", adminH.UpdateModuleTest)
+	adminMux.HandleFunc("DELETE /api/v1/admin/content/module-tests/{id}", adminH.DeleteModuleTest)
 	adminMux.HandleFunc("POST /api/v1/admin/users", adminH.CreateAdminUser)
 	adminMux.HandleFunc("GET /api/v1/admin/users", adminH.GetUsers)
 	adminMux.HandleFunc("GET /api/v1/admin/users/{telegram_id}", adminH.GetAdminUser)
 	adminMux.HandleFunc("PUT /api/v1/admin/users/{telegram_id}", adminH.UpdateAdminUser)
+	adminMux.HandleFunc("DELETE /api/v1/admin/users/{telegram_id}", adminH.DeleteAdminUser)
+	adminMux.HandleFunc("GET /api/v1/admin/users/{telegram_id}/students", adminH.GetTeacherStudents)
 	adminMux.HandleFunc("GET /api/v1/admin/analytics/overview", adminH.GetAnalytics)
+	adminMux.HandleFunc("GET /api/v1/admin/feedback", adminH.GetFeedbackList)
+	adminMux.HandleFunc("GET /api/v1/admin/feedback/{id}", adminH.GetFeedbackItem)
+	adminMux.HandleFunc("GET /api/v1/admin/invite-links", adminH.GetInviteLinkList)
+	adminMux.HandleFunc("GET /api/v1/admin/invite-links/{id}", adminH.GetInviteLinkItem)
+	adminMux.HandleFunc("GET /api/v1/admin/corporate-purchases", adminH.GetCorporatePurchases)
+	adminMux.HandleFunc("GET /api/v1/admin/corporate-purchases/{payment_id}", adminH.GetCorporatePurchase)
+	adminMux.HandleFunc("GET /api/v1/admin/corporate-purchases/{payment_id}/pdf", adminH.GetCorporatePurchasePDF)
+	adminMux.HandleFunc("GET /api/v1/admin/corporate-groups", adminH.GetCorporateGroups)
+	adminMux.HandleFunc("GET /api/v1/admin/corporate-groups/{id}", adminH.GetCorporateGroup)
 
 	// Apply AdminAuth middleware then wrap with CORS.
 	// CORS is outermost so OPTIONS preflight bypasses auth.

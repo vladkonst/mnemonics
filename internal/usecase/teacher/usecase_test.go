@@ -46,6 +46,7 @@ func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error) {
 func (m *mockUserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
 	return nil, 0, nil
 }
+func (m *mockUserRepo) Delete(ctx context.Context, id int64) error { return nil }
 
 type mockTeacherStudentRepo struct {
 	students map[int64][]*user.User
@@ -187,7 +188,7 @@ func (m *mockThemeRepo) GetPreviousTheme(ctx context.Context, themeID int) (*con
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 func newUC(userRepo *mockUserRepo, tsRepo *mockTeacherStudentRepo) *UseCase {
-	return NewUseCase(tsRepo, newMockProgressRepo(), &mockAttemptRepo{}, newMockModuleRepo(), newMockThemeRepo(), userRepo)
+	return NewUseCase(tsRepo, newMockProgressRepo(), &mockAttemptRepo{}, newMockModuleRepo(), newMockThemeRepo(), userRepo, nil, nil, nil)
 }
 
 func makeTeacher(id int64) *user.User {

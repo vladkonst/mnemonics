@@ -2,25 +2,17 @@ package content
 
 import (
 	"fmt"
+	"strings"
 	"time"
 )
 
-// QuestionType defines supported question formats.
-type QuestionType string
-
-const (
-	QuestionTypeMultipleChoice QuestionType = "multiple_choice"
-	QuestionTypeTrueFalse      QuestionType = "true_false"
-)
-
 // Question is a value object within a Test.
+// The only supported format is a free-text answer (case-insensitive match).
 type Question struct {
-	ID            int          `json:"id"`
-	Text          string       `json:"text"`
-	Type          QuestionType `json:"type"`
-	Options       []string     `json:"options"`
-	CorrectAnswer string       `json:"correct_answer"`
-	OrderNum      int          `json:"order_num"`
+	ID            int    `json:"id"`
+	Text          string `json:"text"`
+	CorrectAnswer string `json:"correct_answer"`
+	OrderNum      int    `json:"order_num"`
 }
 
 // Test is an aggregate root that holds a set of Questions for a Theme.
@@ -31,18 +23,18 @@ type Test struct {
 	Difficulty       int        `json:"difficulty"`
 	PassingScore     int        `json:"passing_score"`
 	ShuffleQuestions bool       `json:"shuffle_questions"`
-	ShuffleAnswers   bool       `json:"shuffle_answers"`
 	CreatedAt        time.Time  `json:"created_at"`
 }
 
 // Grade evaluates a set of answers and returns the score percentage.
 // answers is a map of question_id → submitted answer string.
+// Comparison is case-insensitive.
 func (t *Test) Grade(answers map[int]string) (score int, correct int) {
 	if len(t.Questions) == 0 {
 		return 0, 0
 	}
 	for _, q := range t.Questions {
-		if answers[q.ID] == q.CorrectAnswer {
+		if strings.EqualFold(strings.TrimSpace(answers[q.ID]), strings.TrimSpace(q.CorrectAnswer)) {
 			correct++
 		}
 	}

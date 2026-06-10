@@ -40,54 +40,7 @@ func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error) {
 func (m *mockUserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
 	return nil, 0, nil
 }
-
-type mockPromoCodeRepo struct {
-	codes map[string]*subscription.PromoCode
-}
-
-func (m *mockPromoCodeRepo) GetByCode(ctx context.Context, code string) (*subscription.PromoCode, error) {
-	p, ok := m.codes[code]
-	if !ok {
-		return nil, apperrors.ErrNotFound
-	}
-	return p, nil
-}
-func (m *mockPromoCodeRepo) Update(ctx context.Context, p *subscription.PromoCode) error {
-	m.codes[p.Code] = p
-	return nil
-}
-func (m *mockPromoCodeRepo) Create(ctx context.Context, p *subscription.PromoCode) error {
-	m.codes[p.Code] = p
-	return nil
-}
-func (m *mockPromoCodeRepo) Deactivate(ctx context.Context, code string) error {
-	p, ok := m.codes[code]
-	if !ok {
-		return apperrors.ErrNotFound
-	}
-	p.Deactivate()
-	return nil
-}
-func (m *mockPromoCodeRepo) GetByTeacherID(ctx context.Context, teacherID int64) ([]*subscription.PromoCode, error) {
-	var result []*subscription.PromoCode
-	for _, p := range m.codes {
-		if p.TeacherID != nil && *p.TeacherID == teacherID {
-			result = append(result, p)
-		}
-	}
-	return result, nil
-}
-func (m *mockPromoCodeRepo) ConsumeOne(ctx context.Context, code string) error {
-	p, ok := m.codes[code]
-	if !ok {
-		return apperrors.ErrNotFound
-	}
-	if p.Remaining <= 0 {
-		return apperrors.ErrPromoCodeExhausted
-	}
-	p.Remaining--
-	return nil
-}
+func (m *mockUserRepo) Delete(ctx context.Context, id int64) error { return nil }
 
 type mockSubscriptionRepo struct {
 	active    map[int64]*subscription.Subscription
@@ -115,12 +68,11 @@ func (m *mockSubscriptionRepo) GetByPaymentID(ctx context.Context, paymentID str
 }
 
 type mockTeacherStudentRepo struct {
-	relationships map[string]bool // "teacherID-studentID"
+	relationships map[string]bool
 }
 
-func (m *mockTeacherStudentRepo) AddStudent(ctx context.Context, teacherID, studentID int64, promoCode string) error {
-	key := teacherStudentKey(teacherID, studentID)
-	m.relationships[key] = true
+func (m *mockTeacherStudentRepo) AddStudent(ctx context.Context, teacherID, studentID int64, joinRef string) error {
+	m.relationships[teacherStudentKey(teacherID, studentID)] = true
 	return nil
 }
 func (m *mockTeacherStudentRepo) GetStudentsByTeacher(ctx context.Context, teacherID int64) ([]*user.User, error) {
@@ -134,185 +86,82 @@ func teacherStudentKey(teacherID, studentID int64) string {
 	return fmt.Sprintf("%d-%d", teacherID, studentID)
 }
 
-type mockNotificationService struct {
-	sent []string
+type mockInviteLinkRepo struct {
+	links       map[string]*subscription.InviteLink
+	activations map[string]int // linkID → count
 }
 
-func (m *mockNotificationService) Send(ctx context.Context, telegramID int64, message string) error {
-	m.sent = append(m.sent, message)
+func (m *mockInviteLinkRepo) Create(ctx context.Context, l *subscription.InviteLink) error {
+	m.links[l.ID] = l
+	return nil
+}
+func (m *mockInviteLinkRepo) GetByID(ctx context.Context, id string) (*subscription.InviteLink, error) {
+	l, ok := m.links[id]
+	if !ok {
+		return nil, apperrors.ErrNotFound
+	}
+	return l, nil
+}
+func (m *mockInviteLinkRepo) GetByTeacherID(ctx context.Context, teacherID int64) ([]*subscription.InviteLink, error) {
+	return nil, nil
+}
+func (m *mockInviteLinkRepo) GetAll(ctx context.Context, limit, offset int) ([]*subscription.InviteLink, int, error) {
+	return nil, 0, nil
+}
+func (m *mockInviteLinkRepo) AddActivation(ctx context.Context, a *subscription.InviteLinkActivation) error {
+	m.activations[a.InviteLinkID]++
+	return nil
+}
+func (m *mockInviteLinkRepo) GetActivations(ctx context.Context, linkID string) ([]*subscription.InviteLinkActivation, error) {
+	return nil, nil
+}
+func (m *mockInviteLinkRepo) CountActivations(ctx context.Context, linkID string) (int, error) {
+	return m.activations[linkID], nil
+}
+
+type mockNotificationService struct{}
+
+func (m *mockNotificationService) Send(_ context.Context, _ int64, _ string) error    { return nil }
+func (m *mockNotificationService) SendDocument(_ context.Context, _ int64, _ string, _ []byte, _ string) error {
 	return nil
 }
 
-// ── Helpers ───────────────────────────────────────────────────────────────────
+// ── Helper ────────────────────────────────────────────────────────────────────
 
 func newUseCase(
-	promoCodes *mockPromoCodeRepo,
 	subs *mockSubscriptionRepo,
 	users *mockUserRepo,
-	teacherStudents *mockTeacherStudentRepo,
+	ts *mockTeacherStudentRepo,
+	links *mockInviteLinkRepo,
 ) *ucSub.UseCase {
-	return ucSub.NewUseCase(promoCodes, subs, users, teacherStudents, &mockNotificationService{})
+	return ucSub.NewUseCase(subs, users, ts, links, &mockNotificationService{}, nil)
 }
 
-// ── Tests: ActivatePromoCode ──────────────────────────────────────────────────
+// ── Tests: CreateInviteSubscription ──────────────────────────────────────────
 
-func TestActivatePromoCode_HappyPath(t *testing.T) {
-	teacherID := int64(3001)
-	code := "UNIV-CODE-001"
-
-	users := &mockUserRepo{users: map[int64]*user.User{
-		teacherID: {TelegramID: teacherID, Role: user.RoleTeacher},
-	}}
-	promos := &mockPromoCodeRepo{codes: map[string]*subscription.PromoCode{
-		code: {
-			Code:           code,
-			UniversityName: "Test University",
-			MaxActivations: 50,
-			Remaining:      50,
-			Status:         subscription.PromoCodeStatusPending,
-		},
-	}}
-	subs := &mockSubscriptionRepo{
-		active:    map[int64]*subscription.Subscription{},
-		byPayment: map[string]*subscription.Subscription{},
-	}
-	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
-
-	uc := newUseCase(promos, subs, users, ts)
-
-	promo, err := uc.ActivatePromoCode(context.Background(), teacherID, code)
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	if promo.Status != subscription.PromoCodeStatusActive {
-		t.Errorf("expected status=active, got %s", promo.Status)
-	}
-	if promo.TeacherID == nil || *promo.TeacherID != teacherID {
-		t.Errorf("expected TeacherID=%d", teacherID)
-	}
-}
-
-func TestActivatePromoCode_PromoNotFound(t *testing.T) {
-	teacherID := int64(3002)
-
-	users := &mockUserRepo{users: map[int64]*user.User{
-		teacherID: {TelegramID: teacherID, Role: user.RoleTeacher},
-	}}
-	promos := &mockPromoCodeRepo{codes: map[string]*subscription.PromoCode{}}
-	subs := &mockSubscriptionRepo{
-		active:    map[int64]*subscription.Subscription{},
-		byPayment: map[string]*subscription.Subscription{},
-	}
-	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
-
-	uc := newUseCase(promos, subs, users, ts)
-
-	_, err := uc.ActivatePromoCode(context.Background(), teacherID, "NONEXISTENT")
-	if err == nil {
-		t.Fatal("expected error for non-existent promo code, got nil")
-	}
-	if !apperrors.IsNotFound(err) {
-		t.Errorf("expected ErrNotFound, got %v", err)
-	}
-}
-
-func TestActivatePromoCode_AlreadyActivated(t *testing.T) {
-	teacherID := int64(3003)
-	otherTeacherID := int64(9999)
-	code := "ALREADY-ACTIVE"
-
-	users := &mockUserRepo{users: map[int64]*user.User{
-		teacherID: {TelegramID: teacherID, Role: user.RoleTeacher},
-	}}
-	promos := &mockPromoCodeRepo{codes: map[string]*subscription.PromoCode{
-		code: {
-			Code:           code,
-			UniversityName: "University",
-			MaxActivations: 30,
-			Remaining:      30,
-			Status:         subscription.PromoCodeStatusActive, // already activated
-			TeacherID:      &otherTeacherID,
-		},
-	}}
-	subs := &mockSubscriptionRepo{
-		active:    map[int64]*subscription.Subscription{},
-		byPayment: map[string]*subscription.Subscription{},
-	}
-	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
-
-	uc := newUseCase(promos, subs, users, ts)
-
-	_, err := uc.ActivatePromoCode(context.Background(), teacherID, code)
-	if err == nil {
-		t.Fatal("expected error for already-activated promo code, got nil")
-	}
-	if err != apperrors.ErrAlreadyActivated {
-		t.Errorf("expected ErrAlreadyActivated, got %v", err)
-	}
-}
-
-func TestActivatePromoCode_NotTeacher(t *testing.T) {
-	userID := int64(3004)
-	code := "PROMO-001"
-
-	users := &mockUserRepo{users: map[int64]*user.User{
-		userID: {TelegramID: userID, Role: user.RoleStudent},
-	}}
-	promos := &mockPromoCodeRepo{codes: map[string]*subscription.PromoCode{
-		code: {
-			Code:   code,
-			Status: subscription.PromoCodeStatusPending,
-		},
-	}}
-	subs := &mockSubscriptionRepo{
-		active:    map[int64]*subscription.Subscription{},
-		byPayment: map[string]*subscription.Subscription{},
-	}
-	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
-
-	uc := newUseCase(promos, subs, users, ts)
-
-	_, err := uc.ActivatePromoCode(context.Background(), userID, code)
-	if err == nil {
-		t.Fatal("expected ErrNotTeacher, got nil")
-	}
-	if err != apperrors.ErrNotTeacher {
-		t.Errorf("expected ErrNotTeacher, got %v", err)
-	}
-}
-
-// ── Tests: CreatePromoSubscription ───────────────────────────────────────────
-
-func TestCreatePromoSubscription_HappyPath(t *testing.T) {
-	userID := int64(4001)
-	teacherID := int64(4000)
-	code := "PROMO-HAPPY"
+func TestCreateInviteSubscription_HappyPath(t *testing.T) {
+	userID := int64(1001)
+	teacherID := int64(1000)
+	linkID := "link-abc"
 
 	users := &mockUserRepo{users: map[int64]*user.User{
 		userID: {TelegramID: userID, Role: user.RoleStudent, SubscriptionStatus: user.SubscriptionStatusInactive},
 	}}
-
-	futureExpiry := time.Now().UTC().Add(30 * 24 * time.Hour)
-	promos := &mockPromoCodeRepo{codes: map[string]*subscription.PromoCode{
-		code: {
-			Code:           code,
-			UniversityName: "University",
-			MaxActivations: 10,
-			Remaining:      10,
-			Status:         subscription.PromoCodeStatusActive,
-			TeacherID:      &teacherID,
-			ExpiresAt:      &futureExpiry,
-		},
-	}}
 	subs := &mockSubscriptionRepo{
 		active:    map[int64]*subscription.Subscription{},
 		byPayment: map[string]*subscription.Subscription{},
 	}
 	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
+	links := &mockInviteLinkRepo{
+		links: map[string]*subscription.InviteLink{
+			linkID: {ID: linkID, TeacherID: teacherID, MaxActivations: 30, CreatedAt: time.Now()},
+		},
+		activations: map[string]int{},
+	}
 
-	uc := newUseCase(promos, subs, users, ts)
+	uc := newUseCase(subs, users, ts, links)
 
-	sub, err := uc.CreatePromoSubscription(context.Background(), userID, code)
+	sub, err := uc.CreateInviteSubscription(context.Background(), userID, linkID)
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
@@ -322,40 +171,139 @@ func TestCreatePromoSubscription_HappyPath(t *testing.T) {
 	if sub.Type != subscription.SubscriptionTypeUniversity {
 		t.Errorf("expected type=university, got %s", sub.Type)
 	}
-
-	// Verify promo remaining was decremented.
-	promo := promos.codes[code]
-	if promo.Remaining != 9 {
-		t.Errorf("expected Remaining=9, got %d", promo.Remaining)
+	if links.activations[linkID] != 1 {
+		t.Errorf("expected 1 activation recorded, got %d", links.activations[linkID])
+	}
+	if !ts.relationships[teacherStudentKey(teacherID, userID)] {
+		t.Error("expected teacher-student relationship to be recorded")
 	}
 }
 
-func TestCreatePromoSubscription_AlreadyHasSubscription(t *testing.T) {
-	userID := int64(4002)
+func TestCreateInviteSubscription_LinkExhausted(t *testing.T) {
+	userID := int64(1002)
+	linkID := "link-full"
 
 	users := &mockUserRepo{users: map[int64]*user.User{
-		userID: {TelegramID: userID, Role: user.RoleStudent, SubscriptionStatus: user.SubscriptionStatusActive},
+		userID: {TelegramID: userID, Role: user.RoleStudent},
 	}}
-	promos := &mockPromoCodeRepo{codes: map[string]*subscription.PromoCode{}}
+	subs := &mockSubscriptionRepo{
+		active:    map[int64]*subscription.Subscription{},
+		byPayment: map[string]*subscription.Subscription{},
+	}
+	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
+	links := &mockInviteLinkRepo{
+		links: map[string]*subscription.InviteLink{
+			linkID: {ID: linkID, TeacherID: 999, MaxActivations: 2, CreatedAt: time.Now()},
+		},
+		activations: map[string]int{linkID: 2}, // already full
+	}
+
+	uc := newUseCase(subs, users, ts, links)
+
+	_, err := uc.CreateInviteSubscription(context.Background(), userID, linkID)
+	if err == nil {
+		t.Fatal("expected ErrInviteLinkExhausted, got nil")
+	}
+	if err != apperrors.ErrInviteLinkExhausted {
+		t.Errorf("expected ErrInviteLinkExhausted, got %v", err)
+	}
+}
+
+func TestCreateInviteSubscription_LinkNotFound(t *testing.T) {
+	userID := int64(1003)
+
+	users := &mockUserRepo{users: map[int64]*user.User{
+		userID: {TelegramID: userID},
+	}}
+	subs := &mockSubscriptionRepo{
+		active:    map[int64]*subscription.Subscription{},
+		byPayment: map[string]*subscription.Subscription{},
+	}
+	links := &mockInviteLinkRepo{links: map[string]*subscription.InviteLink{}, activations: map[string]int{}}
+
+	uc := newUseCase(subs, users, &mockTeacherStudentRepo{relationships: map[string]bool{}}, links)
+
+	_, err := uc.CreateInviteSubscription(context.Background(), userID, "nonexistent")
+	if !apperrors.IsNotFound(err) {
+		t.Errorf("expected ErrNotFound, got %v", err)
+	}
+}
+
+func TestCreateInviteSubscription_AlreadyHasSubscription(t *testing.T) {
+	userID := int64(1004)
+	linkID := "link-ok"
+
+	users := &mockUserRepo{users: map[int64]*user.User{
+		userID: {TelegramID: userID, SubscriptionStatus: user.SubscriptionStatusActive},
+	}}
 	subs := &mockSubscriptionRepo{
 		active: map[int64]*subscription.Subscription{
-			userID: {
-				PaymentID: "existing",
-				UserID:    userID,
-				Status:    subscription.SubscriptionPlanStatusActive,
-			},
+			userID: {PaymentID: "existing", UserID: userID, Status: subscription.SubscriptionPlanStatusActive},
 		},
 		byPayment: map[string]*subscription.Subscription{},
 	}
 	ts := &mockTeacherStudentRepo{relationships: map[string]bool{}}
-
-	uc := newUseCase(promos, subs, users, ts)
-
-	_, err := uc.CreatePromoSubscription(context.Background(), userID, "ANY-CODE")
-	if err == nil {
-		t.Fatal("expected ErrActiveSubscriptionExists, got nil")
+	links := &mockInviteLinkRepo{
+		links:       map[string]*subscription.InviteLink{linkID: {ID: linkID, TeacherID: 999, MaxActivations: 30}},
+		activations: map[string]int{},
 	}
+
+	uc := newUseCase(subs, users, ts, links)
+
+	_, err := uc.CreateInviteSubscription(context.Background(), userID, linkID)
 	if err != apperrors.ErrActiveSubscriptionExists {
 		t.Errorf("expected ErrActiveSubscriptionExists, got %v", err)
+	}
+}
+
+// ── Tests: CreatePaymentSubscription ─────────────────────────────────────────
+
+func TestCreatePaymentSubscription_HappyPath(t *testing.T) {
+	userID := int64(2001)
+	paymentID := "pay-001"
+
+	users := &mockUserRepo{users: map[int64]*user.User{
+		userID: {TelegramID: userID, Role: user.RoleStudent, SubscriptionStatus: user.SubscriptionStatusInactive},
+	}}
+	subs := &mockSubscriptionRepo{
+		active:    map[int64]*subscription.Subscription{},
+		byPayment: map[string]*subscription.Subscription{},
+	}
+	links := &mockInviteLinkRepo{links: map[string]*subscription.InviteLink{}, activations: map[string]int{}}
+
+	uc := newUseCase(subs, users, &mockTeacherStudentRepo{relationships: map[string]bool{}}, links)
+
+	sub, err := uc.CreatePaymentSubscription(context.Background(), userID, paymentID, "monthly")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if sub.PaymentID != paymentID {
+		t.Errorf("expected paymentID=%s, got %s", paymentID, sub.PaymentID)
+	}
+	if sub.Type != subscription.SubscriptionTypePersonal {
+		t.Errorf("expected type=personal, got %s", sub.Type)
+	}
+}
+
+func TestCreatePaymentSubscription_Idempotent(t *testing.T) {
+	userID := int64(2002)
+	paymentID := "pay-idem"
+
+	existing := &subscription.Subscription{PaymentID: paymentID, UserID: userID, Status: subscription.SubscriptionPlanStatusActive}
+	users := &mockUserRepo{users: map[int64]*user.User{userID: {TelegramID: userID}}}
+	subs := &mockSubscriptionRepo{
+		active:    map[int64]*subscription.Subscription{userID: existing},
+		byPayment: map[string]*subscription.Subscription{paymentID: existing},
+	}
+	links := &mockInviteLinkRepo{links: map[string]*subscription.InviteLink{}, activations: map[string]int{}}
+
+	uc := newUseCase(subs, users, &mockTeacherStudentRepo{relationships: map[string]bool{}}, links)
+
+	sub, err := uc.CreatePaymentSubscription(context.Background(), userID, paymentID, "monthly")
+	if err != nil {
+		t.Fatalf("unexpected error on idempotent call: %v", err)
+	}
+	if sub.PaymentID != paymentID {
+		t.Errorf("expected existing sub returned")
 	}
 }

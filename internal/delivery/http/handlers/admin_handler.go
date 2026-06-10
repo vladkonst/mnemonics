@@ -8,26 +8,28 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/vladkonst/mnemonics/internal/delivery/http/respond"
 	"github.com/vladkonst/mnemonics/internal/domain/content"
+	feedbackDomain "github.com/vladkonst/mnemonics/internal/domain/feedback"
 	"github.com/vladkonst/mnemonics/internal/domain/interfaces"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
 	adminUC "github.com/vladkonst/mnemonics/internal/usecase/admin"
+	managerUC "github.com/vladkonst/mnemonics/internal/usecase/manager"
 )
 
 // AdminHandler handles admin HTTP endpoints.
 type AdminHandler struct {
 	uc         *adminUC.UseCase
+	managerUC  *managerUC.UseCase
 	storage    interfaces.StorageService
 	uploadsDir string
 }
 
 // NewAdminHandler creates a new AdminHandler.
-func NewAdminHandler(uc *adminUC.UseCase, storage interfaces.StorageService, uploadsDir string) *AdminHandler {
-	return &AdminHandler{uc: uc, storage: storage, uploadsDir: uploadsDir}
+func NewAdminHandler(uc *adminUC.UseCase, managerUseCase *managerUC.UseCase, storage interfaces.StorageService, uploadsDir string) *AdminHandler {
+	return &AdminHandler{uc: uc, managerUC: managerUseCase, storage: storage, uploadsDir: uploadsDir}
 }
 
 // UploadImage handles POST /api/v1/admin/upload.
@@ -80,69 +82,6 @@ func (h *AdminHandler) ServeUpload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.Redirect(w, r, url, http.StatusFound)
-}
-
-// createPromoCodeRequest is the JSON body for POST /api/v1/admin/promo-codes.
-type createPromoCodeRequest struct {
-	Code           string  `json:"code"`
-	UniversityName string  `json:"university_name"`
-	MaxActivations int     `json:"max_activations"`
-	ExpiresAt      *string `json:"expires_at"` // RFC3339
-}
-
-// CreatePromoCode handles POST /api/v1/admin/promo-codes.
-func (h *AdminHandler) CreatePromoCode(w http.ResponseWriter, r *http.Request) {
-	var req createPromoCodeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
-		return
-	}
-	if req.Code == "" {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "code is required")
-		return
-	}
-	if req.MaxActivations <= 0 {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "max_activations must be positive")
-		return
-	}
-
-	var expiresAt *time.Time
-	if req.ExpiresAt != nil {
-		t, err := time.Parse(time.RFC3339, *req.ExpiresAt)
-		if err != nil {
-			respond.Error(w, http.StatusBadRequest, "bad_request", "expires_at must be RFC3339 format")
-			return
-		}
-		expiresAt = &t
-	}
-
-	promo, err := h.uc.CreatePromoCode(r.Context(), req.Code, req.UniversityName, req.MaxActivations, expiresAt)
-	if err != nil {
-		respond.ErrorFrom(w, err)
-		return
-	}
-
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/admin/promo-codes/%s", promo.Code))
-	respond.JSON(w, http.StatusCreated, promo)
-}
-
-// DeactivatePromoCode handles DELETE /api/v1/admin/promo-codes/{code}.
-func (h *AdminHandler) DeactivatePromoCode(w http.ResponseWriter, r *http.Request) {
-	code := r.PathValue("code")
-	if code == "" {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "code is required")
-		return
-	}
-
-	if err := h.uc.DeactivatePromoCode(r.Context(), code); err != nil {
-		respond.ErrorFrom(w, err)
-		return
-	}
-
-	respond.JSON(w, http.StatusOK, map[string]string{
-		"code":   code,
-		"status": "deactivated",
-	})
 }
 
 // createModuleRequest is the JSON body for POST /api/v1/admin/content/modules.
@@ -247,6 +186,8 @@ type createMnemonicRequest struct {
 	Type        string  `json:"type"`
 	ContentText *string `json:"content_text"`
 	S3ImageKey  *string `json:"s3_image_key"`
+	TermRu      *string `json:"term_ru"`
+	TermLatin   *string `json:"term_latin"`
 	OrderNum    int     `json:"order_num"`
 }
 
@@ -266,7 +207,7 @@ func (h *AdminHandler) CreateMnemonic(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	mnemonic, err := h.uc.CreateMnemonic(r.Context(), req.ThemeID, content.MnemonicType(req.Type), req.ContentText, req.S3ImageKey, req.OrderNum)
+	mnemonic, err := h.uc.CreateMnemonic(r.Context(), req.ThemeID, content.MnemonicType(req.Type), req.ContentText, req.S3ImageKey, req.TermRu, req.TermLatin, req.OrderNum)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
@@ -282,17 +223,14 @@ type createTestRequest struct {
 	Difficulty       int               `json:"difficulty"`
 	PassingScore     int               `json:"passing_score"`
 	ShuffleQuestions bool              `json:"shuffle_questions"`
-	ShuffleAnswers   bool              `json:"shuffle_answers"`
 	Questions        []questionRequest `json:"questions"`
 }
 
 type questionRequest struct {
-	ID            int      `json:"id"`
-	Text          string   `json:"text"`
-	Type          string   `json:"type"`
-	Options       []string `json:"options"`
-	CorrectAnswer string   `json:"correct_answer"`
-	OrderNum      int      `json:"order_num"`
+	ID            int    `json:"id"`
+	Text          string `json:"text"`
+	CorrectAnswer string `json:"correct_answer"`
+	OrderNum      int    `json:"order_num"`
 }
 
 // CreateTest handles POST /api/v1/admin/content/tests.
@@ -312,14 +250,12 @@ func (h *AdminHandler) CreateTest(w http.ResponseWriter, r *http.Request) {
 		questions = append(questions, content.Question{
 			ID:            q.ID,
 			Text:          q.Text,
-			Type:          content.QuestionType(q.Type),
-			Options:       q.Options,
 			CorrectAnswer: q.CorrectAnswer,
 			OrderNum:      q.OrderNum,
 		})
 	}
 
-	test, err := h.uc.CreateTest(r.Context(), req.ThemeID, req.Difficulty, req.PassingScore, req.ShuffleQuestions, req.ShuffleAnswers, questions)
+	test, err := h.uc.CreateTest(r.Context(), req.ThemeID, req.Difficulty, req.PassingScore, req.ShuffleQuestions, questions)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
@@ -327,6 +263,170 @@ func (h *AdminHandler) CreateTest(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Location", fmt.Sprintf("/api/v1/admin/content/tests/%d", test.ID))
 	respond.JSON(w, http.StatusCreated, test)
+}
+
+// createModuleTestRequest is the JSON body for POST /api/v1/admin/content/module-tests.
+type createModuleTestRequest struct {
+	ModuleID         int               `json:"module_id"`
+	Name             string            `json:"name"`
+	Difficulty       int               `json:"difficulty"`
+	PassingScore     int               `json:"passing_score"`
+	ShuffleQuestions bool              `json:"shuffle_questions"`
+	Questions        []questionRequest `json:"questions"`
+}
+
+// generateModuleTestRequest is the JSON body for POST /api/v1/admin/content/module-tests/generate.
+type generateModuleTestRequest struct {
+	ModuleID         int    `json:"module_id"`
+	// Deprecated fields kept for backwards compatibility; values are ignored.
+	Name             string `json:"name"`
+	Pct              int    `json:"pct"`
+	Difficulty       int    `json:"difficulty"`
+	PassingScore     int    `json:"passing_score"`
+	ShuffleQuestions bool   `json:"shuffle_questions"`
+}
+
+// CreateModuleTest handles POST /api/v1/admin/content/module-tests.
+func (h *AdminHandler) CreateModuleTest(w http.ResponseWriter, r *http.Request) {
+	var req createModuleTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	if req.ModuleID <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "module_id is required")
+		return
+	}
+	if req.Name == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "name is required")
+		return
+	}
+
+	questions := make([]content.Question, 0, len(req.Questions))
+	for _, q := range req.Questions {
+		questions = append(questions, content.Question{
+			ID:            q.ID,
+			Text:          q.Text,
+			CorrectAnswer: q.CorrectAnswer,
+			OrderNum:      q.OrderNum,
+		})
+	}
+
+	test, err := h.uc.CreateModuleTest(r.Context(), req.ModuleID, req.Name, req.Difficulty, req.PassingScore, req.ShuffleQuestions, questions)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/admin/content/module-tests/%d", test.ID))
+	respond.JSON(w, http.StatusCreated, test)
+}
+
+// GenerateModuleTest handles POST /api/v1/admin/content/module-tests/generate.
+func (h *AdminHandler) GenerateModuleTest(w http.ResponseWriter, r *http.Request) {
+	var req generateModuleTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	if req.ModuleID <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "module_id is required")
+		return
+	}
+	test, err := h.uc.GenerateModuleTest(r.Context(), req.ModuleID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/admin/content/module-tests/%d", test.ID))
+	respond.JSON(w, http.StatusCreated, test)
+}
+
+// GetAdminModuleTests handles GET /api/v1/admin/content/module-tests[?module_id={id}].
+func (h *AdminHandler) GetAdminModuleTests(w http.ResponseWriter, r *http.Request) {
+	if moduleIDStr := r.URL.Query().Get("module_id"); moduleIDStr != "" {
+		moduleID, err := strconv.Atoi(moduleIDStr)
+		if err != nil || moduleID <= 0 {
+			respond.Error(w, http.StatusBadRequest, "bad_request", "module_id must be a valid positive integer")
+			return
+		}
+		tests, err := h.uc.GetModuleTestsByModule(r.Context(), moduleID)
+		if err != nil {
+			respond.ErrorFrom(w, err)
+			return
+		}
+		respond.JSON(w, http.StatusOK, map[string]interface{}{"data": tests, "total": len(tests)})
+		return
+	}
+	tests, err := h.uc.GetAllModuleTests(r.Context())
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]interface{}{"data": tests, "total": len(tests)})
+}
+
+// GetAdminModuleTest handles GET /api/v1/admin/content/module-tests/{id}.
+func (h *AdminHandler) GetAdminModuleTest(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "id must be a valid positive integer")
+		return
+	}
+	t, err := h.uc.GetModuleTestByID(r.Context(), id)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, t)
+}
+
+// UpdateModuleTest handles PUT /api/v1/admin/content/module-tests/{id}.
+func (h *AdminHandler) UpdateModuleTest(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "id must be a valid positive integer")
+		return
+	}
+	var req createModuleTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	if req.Name == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "name is required")
+		return
+	}
+	questions := make([]content.Question, 0, len(req.Questions))
+	for _, q := range req.Questions {
+		questions = append(questions, content.Question{
+			ID:            q.ID,
+			Text:          q.Text,
+			CorrectAnswer: q.CorrectAnswer,
+			OrderNum:      q.OrderNum,
+		})
+	}
+	t, err := h.uc.UpdateModuleTest(r.Context(), id, req.Name, req.Difficulty, req.PassingScore, req.ShuffleQuestions, questions)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, t)
+}
+
+// DeleteModuleTest handles DELETE /api/v1/admin/content/module-tests/{id}.
+func (h *AdminHandler) DeleteModuleTest(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "id must be a valid positive integer")
+		return
+	}
+	if err := h.uc.DeleteModuleTest(r.Context(), id); err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]bool{"deleted": true})
 }
 
 // GetUsers handles GET /api/v1/admin/users.
@@ -443,6 +543,8 @@ func (h *AdminHandler) DeleteTheme(w http.ResponseWriter, r *http.Request) {
 type updateMnemonicRequest struct {
 	ContentText *string `json:"content_text"`
 	S3ImageKey  *string `json:"s3_image_key"`
+	TermRu      *string `json:"term_ru"`
+	TermLatin   *string `json:"term_latin"`
 	OrderNum    int     `json:"order_num"`
 }
 
@@ -458,7 +560,7 @@ func (h *AdminHandler) UpdateMnemonic(w http.ResponseWriter, r *http.Request) {
 		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
 		return
 	}
-	mnemonic, err := h.uc.UpdateMnemonic(r.Context(), id, req.ContentText, req.S3ImageKey, req.OrderNum)
+	mnemonic, err := h.uc.UpdateMnemonic(r.Context(), id, req.ContentText, req.S3ImageKey, req.TermRu, req.TermLatin, req.OrderNum)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
@@ -497,13 +599,11 @@ func (h *AdminHandler) UpdateTest(w http.ResponseWriter, r *http.Request) {
 		questions = append(questions, content.Question{
 			ID:            q.ID,
 			Text:          q.Text,
-			Type:          content.QuestionType(q.Type),
-			Options:       q.Options,
 			CorrectAnswer: q.CorrectAnswer,
 			OrderNum:      q.OrderNum,
 		})
 	}
-	test, err := h.uc.UpdateTest(r.Context(), id, req.Difficulty, req.PassingScore, req.ShuffleQuestions, req.ShuffleAnswers, questions)
+	test, err := h.uc.UpdateTest(r.Context(), id, req.Difficulty, req.PassingScore, req.ShuffleQuestions, questions)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
@@ -625,16 +725,6 @@ func (h *AdminHandler) GetAdminTest(w http.ResponseWriter, r *http.Request) {
 	respond.JSON(w, http.StatusOK, t)
 }
 
-// GetAdminPromoCodes handles GET /api/v1/admin/promo-codes.
-func (h *AdminHandler) GetAdminPromoCodes(w http.ResponseWriter, r *http.Request) {
-	codes, err := h.uc.GetAllPromoCodes(r.Context())
-	if err != nil {
-		respond.ErrorFrom(w, err)
-		return
-	}
-	respond.JSON(w, http.StatusOK, map[string]interface{}{"data": codes, "total": len(codes)})
-}
-
 type createAdminUserRequest struct {
 	TelegramID         int64  `json:"telegram_id"`
 	Role               string `json:"role"`
@@ -666,6 +756,38 @@ func (h *AdminHandler) CreateAdminUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.JSON(w, http.StatusCreated, u)
+}
+
+// DeleteAdminUser handles DELETE /api/v1/admin/users/{telegram_id}.
+func (h *AdminHandler) DeleteAdminUser(w http.ResponseWriter, r *http.Request) {
+	telegramID, err := strconv.ParseInt(r.PathValue("telegram_id"), 10, 64)
+	if err != nil || telegramID <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "telegram_id must be a valid positive integer")
+		return
+	}
+	if err := h.uc.DeleteUser(r.Context(), telegramID); err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]int64{"telegram_id": telegramID})
+}
+
+// GetTeacherStudents handles GET /api/v1/admin/users/{telegram_id}/students.
+func (h *AdminHandler) GetTeacherStudents(w http.ResponseWriter, r *http.Request) {
+	telegramID, err := strconv.ParseInt(r.PathValue("telegram_id"), 10, 64)
+	if err != nil || telegramID <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "telegram_id must be a valid positive integer")
+		return
+	}
+	students, err := h.uc.GetStudentsByTeacher(r.Context(), telegramID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	if students == nil {
+		students = []*user.User{}
+	}
+	respond.JSON(w, http.StatusOK, map[string]interface{}{"data": students, "total": len(students)})
 }
 
 // GetAdminUser handles GET /api/v1/admin/users/{telegram_id}.
@@ -716,4 +838,190 @@ func (h *AdminHandler) UpdateAdminUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	respond.JSON(w, http.StatusOK, u)
+}
+
+// GetFeedbackList handles GET /api/v1/admin/feedback.
+func (h *AdminHandler) GetFeedbackList(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+
+	items, total, err := h.uc.GetFeedback(r.Context(), limit, offset)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	if items == nil {
+		items = []*feedbackDomain.Feedback{}
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{"data": items, "total": total})
+}
+
+// GetFeedbackItem handles GET /api/v1/admin/feedback/{id}.
+func (h *AdminHandler) GetFeedbackItem(w http.ResponseWriter, r *http.Request) {
+	idStr := r.PathValue("id")
+	id, err := strconv.Atoi(idStr)
+	if err != nil || id <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid id")
+		return
+	}
+	item, err := h.uc.GetFeedbackByID(r.Context(), id)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, item)
+}
+
+// GetInviteLinkList handles GET /api/v1/admin/invite-links.
+func (h *AdminHandler) GetInviteLinkList(w http.ResponseWriter, r *http.Request) {
+	limit := 50
+	offset := 0
+	if v := r.URL.Query().Get("limit"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			limit = n
+		}
+	}
+	if v := r.URL.Query().Get("offset"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+			offset = n
+		}
+	}
+	items, total, err := h.uc.GetInviteLinks(r.Context(), limit, offset)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]any{"data": items, "total": total})
+}
+
+// GetInviteLinkItem handles GET /api/v1/admin/invite-links/{id}.
+func (h *AdminHandler) GetInviteLinkItem(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid id")
+		return
+	}
+	item, err := h.uc.GetInviteLinkByID(r.Context(), id)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, item)
+}
+
+// GetCorporatePurchases handles GET /api/v1/admin/corporate-purchases.
+func (h *AdminHandler) GetCorporatePurchases(w http.ResponseWriter, r *http.Request) {
+	managerIDStr := r.URL.Query().Get("manager_id")
+	var purchases interface{}
+	var err error
+	if managerIDStr != "" {
+		managerID, parseErr := strconv.ParseInt(managerIDStr, 10, 64)
+		if parseErr != nil || managerID <= 0 {
+			respond.Error(w, http.StatusBadRequest, "bad_request", "manager_id must be a valid positive integer")
+			return
+		}
+		purchases, err = h.managerUC.GetPurchases(r.Context(), managerID)
+	} else {
+		purchases, err = h.managerUC.GetAllPurchases(r.Context())
+	}
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]interface{}{"data": purchases})
+}
+
+// GetCorporatePurchase handles GET /api/v1/admin/corporate-purchases/{payment_id}.
+func (h *AdminHandler) GetCorporatePurchase(w http.ResponseWriter, r *http.Request) {
+	paymentID := r.PathValue("payment_id")
+	if paymentID == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "payment_id is required")
+		return
+	}
+	purchase, err := h.managerUC.GetPurchaseByID(r.Context(), paymentID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, purchase)
+}
+
+// GetCorporatePurchasePDF handles GET /api/v1/admin/corporate-purchases/{payment_id}/pdf.
+func (h *AdminHandler) GetCorporatePurchasePDF(w http.ResponseWriter, r *http.Request) {
+	paymentID := r.PathValue("payment_id")
+	if paymentID == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "payment_id is required")
+		return
+	}
+	// Admin can regenerate PDF for any purchase (no owner check).
+	data, err := h.managerUC.GeneratePurchasePDF(r.Context(), 0, paymentID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	w.Header().Set("Content-Type", "application/pdf")
+	w.Header().Set("Content-Disposition", fmt.Sprintf(`attachment; filename="corporate_%s.pdf"`, paymentID))
+	w.WriteHeader(http.StatusOK)
+	w.Write(data)
+}
+
+// GetCorporateGroups handles GET /api/v1/admin/corporate-groups.
+func (h *AdminHandler) GetCorporateGroups(w http.ResponseWriter, r *http.Request) {
+	purchaseIDFilter := r.URL.Query().Get("purchase_id")
+	managerIDStr := r.URL.Query().Get("manager_id")
+
+	if purchaseIDFilter != "" {
+		groups, err := h.managerUC.GetGroupsByPurchase(r.Context(), purchaseIDFilter)
+		if err != nil {
+			respond.ErrorFrom(w, err)
+			return
+		}
+		respond.JSON(w, http.StatusOK, map[string]interface{}{"data": groups})
+		return
+	}
+	if managerIDStr != "" {
+		managerID, parseErr := strconv.ParseInt(managerIDStr, 10, 64)
+		if parseErr != nil || managerID <= 0 {
+			respond.Error(w, http.StatusBadRequest, "bad_request", "manager_id must be a valid positive integer")
+			return
+		}
+		groups, err := h.managerUC.GetGroupsByManager(r.Context(), managerID)
+		if err != nil {
+			respond.ErrorFrom(w, err)
+			return
+		}
+		respond.JSON(w, http.StatusOK, map[string]interface{}{"data": groups})
+		return
+	}
+	groups, err := h.managerUC.GetAllGroups(r.Context())
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, map[string]interface{}{"data": groups})
+}
+
+// GetCorporateGroup handles GET /api/v1/admin/corporate-groups/{id}.
+func (h *AdminHandler) GetCorporateGroup(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if id == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "id is required")
+		return
+	}
+	group, err := h.managerUC.GetGroupByID(r.Context(), id)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusOK, group)
 }

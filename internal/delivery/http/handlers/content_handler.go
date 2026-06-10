@@ -89,6 +89,22 @@ func (h *ContentHandler) GetTheme(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	userID, ok := middleware.TelegramUserID(r.Context())
+	if !ok {
+		respond.Error(w, http.StatusUnauthorized, "unauthorized", "missing auth context")
+		return
+	}
+
+	access, err := h.uc.CheckThemeAccess(r.Context(), userID, themeID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	if !access.Accessible {
+		respond.Error(w, http.StatusForbidden, "forbidden", "theme access denied")
+		return
+	}
+
 	result, err := h.uc.GetTheme(r.Context(), themeID)
 	if err != nil {
 		respond.ErrorFrom(w, err)
@@ -159,14 +175,14 @@ func (h *ContentHandler) StartTestAttempt(w http.ResponseWriter, r *http.Request
 		return
 	}
 
-	attempt, err := h.uc.StartTestAttempt(r.Context(), userID, req.ThemeID)
+	result, err := h.uc.StartTestAttempt(r.Context(), userID, req.ThemeID)
 	if err != nil {
 		respond.ErrorFrom(w, err)
 		return
 	}
 
-	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d/test-attempts/%s", userID, attempt.AttemptID))
-	respond.JSON(w, http.StatusCreated, attempt)
+	w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d/test-attempts/%s", userID, result.AttemptID))
+	respond.JSON(w, http.StatusCreated, result)
 }
 
 // submitTestAttemptRequest is the JSON body for PUT /api/v1/users/{user_id}/test-attempts/{attempt_id}.
@@ -242,6 +258,85 @@ func (h *ContentHandler) CheckThemeAccess(w http.ResponseWriter, r *http.Request
 		return
 	}
 
+	respond.JSON(w, http.StatusOK, result)
+}
+
+// startModuleTestRequest is the JSON body for POST /api/v1/users/{user_id}/module-test-attempts.
+type startModuleTestRequest struct {
+	ModuleID int `json:"module_id"`
+}
+
+// StartModuleTestAttempt handles POST /api/v1/users/{user_id}/module-test-attempts.
+// It dynamically generates a test from the module's theme questions and persists the attempt.
+func (h *ContentHandler) StartModuleTestAttempt(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUserID(r)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
+
+	var req startModuleTestRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+	if req.ModuleID <= 0 {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "module_id is required")
+		return
+	}
+
+	result, err := h.uc.StartModuleTestAttempt(r.Context(), userID, req.ModuleID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+	respond.JSON(w, http.StatusCreated, result)
+}
+
+// submitModuleTestAttemptRequest is the JSON body for PUT /api/v1/users/{user_id}/module-test-attempts/{attempt_id}.
+type submitModuleTestAttemptRequest struct {
+	Answers []answerItemRequest `json:"answers"`
+}
+
+// SubmitModuleTestAttempt handles PUT /api/v1/users/{user_id}/module-test-attempts/{attempt_id}.
+func (h *ContentHandler) SubmitModuleTestAttempt(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUserID(r)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
+
+	attemptID := r.PathValue("attempt_id")
+	if attemptID == "" {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "attempt_id is required")
+		return
+	}
+
+	var req submitModuleTestAttemptRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	answers := make([]progress.AnswerItem, 0, len(req.Answers))
+	for _, a := range req.Answers {
+		answers = append(answers, progress.AnswerItem{
+			QuestionID: a.QuestionID,
+			Answer:     a.Answer,
+		})
+	}
+
+	result, err := h.uc.SubmitModuleTestAttempt(r.Context(), userID, attemptID, answers)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
 	respond.JSON(w, http.StatusOK, result)
 }
 

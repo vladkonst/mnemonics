@@ -62,14 +62,15 @@ type AccessResult struct {
 
 // UseCase orchestrates content delivery operations.
 type UseCase struct {
-	modules       interfaces.ModuleRepository
-	themes        interfaces.ThemeRepository
-	mnemonics     interfaces.MnemonicRepository
-	tests         interfaces.TestRepository
-	progress      interfaces.ProgressRepository
-	attempts      interfaces.TestAttemptRepository
-	subscriptions interfaces.SubscriptionRepository
-	storage       interfaces.StorageService
+	modules            interfaces.ModuleRepository
+	themes             interfaces.ThemeRepository
+	mnemonics          interfaces.MnemonicRepository
+	tests              interfaces.TestRepository
+	progress           interfaces.ProgressRepository
+	attempts           interfaces.TestAttemptRepository
+	moduleTestAttempts interfaces.ModuleTestAttemptRepository
+	subscriptions      interfaces.SubscriptionRepository
+	storage            interfaces.StorageService
 }
 
 // NewUseCase creates a new content UseCase.
@@ -80,18 +81,20 @@ func NewUseCase(
 	tests interfaces.TestRepository,
 	progress interfaces.ProgressRepository,
 	attempts interfaces.TestAttemptRepository,
+	moduleTestAttempts interfaces.ModuleTestAttemptRepository,
 	subscriptions interfaces.SubscriptionRepository,
 	storage interfaces.StorageService,
 ) *UseCase {
 	return &UseCase{
-		modules:       modules,
-		themes:        themes,
-		mnemonics:     mnemonics,
-		tests:         tests,
-		progress:      progress,
-		attempts:      attempts,
-		subscriptions: subscriptions,
-		storage:       storage,
+		modules:            modules,
+		themes:             themes,
+		mnemonics:          mnemonics,
+		tests:              tests,
+		progress:           progress,
+		attempts:           attempts,
+		moduleTestAttempts: moduleTestAttempts,
+		subscriptions:      subscriptions,
+		storage:            storage,
 	}
 }
 
@@ -100,6 +103,19 @@ func (uc *UseCase) GetModules(ctx context.Context, userID int64) ([]*ModuleWithP
 	modules, err := uc.modules.GetAll(ctx)
 	if err != nil {
 		return nil, err
+	}
+
+	// Check subscription — subscribers get access to all unlocked modules.
+	sub, err := uc.subscriptions.GetActiveByUserID(ctx, userID)
+	if err != nil && !apperrors.IsNotFound(err) {
+		return nil, err
+	}
+	hasSubscription := sub != nil && sub.IsActive()
+
+	// First module (lowest order_num) is always free.
+	firstModuleID := 0
+	if len(modules) > 0 {
+		firstModuleID = modules[0].ID
 	}
 
 	result := make([]*ModuleWithProgress, 0, len(modules))
@@ -120,11 +136,18 @@ func (uc *UseCase) GetModules(ctx context.Context, userID int64) ([]*ModuleWithP
 			}
 		}
 
+		var isAccessible bool
+		if hasSubscription {
+			isAccessible = !m.IsLocked
+		} else {
+			isAccessible = m.ID == firstModuleID
+		}
+
 		result = append(result, &ModuleWithProgress{
 			Module:          m,
 			TotalThemes:     len(themes),
 			CompletedThemes: completed,
-			IsAccessible:    !m.IsLocked,
+			IsAccessible:    isAccessible,
 		})
 	}
 	return result, nil
@@ -222,31 +245,44 @@ func (uc *UseCase) GetTheme(ctx context.Context, themeID int) (*StudySessionResu
 
 // CheckThemeAccess determines whether a user may access a given theme.
 func (uc *UseCase) CheckThemeAccess(ctx context.Context, userID int64, themeID int) (*AccessResult, error) {
-	// Check active subscription.
+	// Check active subscription — grants full access to all content.
 	sub, err := uc.subscriptions.GetActiveByUserID(ctx, userID)
 	if err != nil && !apperrors.IsNotFound(err) {
 		return nil, err
 	}
-
 	if sub != nil && sub.IsActive() {
+		return &AccessResult{Accessible: true, AccessType: "subscription"}, nil
+	}
+
+	// No active subscription: only the first module (lowest order_num) is free.
+	theme, err := uc.themes.GetByID(ctx, themeID)
+	if err != nil {
+		return nil, err
+	}
+	allModules, err := uc.modules.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if len(allModules) == 0 || theme.ModuleID != allModules[0].ID {
+		reason := "subscription_required"
+		action := "get_subscription"
 		return &AccessResult{
-			Accessible: true,
-			AccessType: "subscription",
+			Accessible:     false,
+			AccessType:     "sequential",
+			Reason:         &reason,
+			RequiredAction: &action,
 		}, nil
 	}
 
-	// No active subscription: sequential logic.
+	// First module: apply sequential theme unlock within it.
 	prevTheme, err := uc.themes.GetPreviousTheme(ctx, themeID)
 	if err != nil && !apperrors.IsNotFound(err) {
 		return nil, err
 	}
 
-	// First theme (no previous) is always accessible.
+	// First theme in the module is always accessible (module is already unlocked).
 	if prevTheme == nil {
-		return &AccessResult{
-			Accessible: true,
-			AccessType: "sequential",
-		}, nil
+		return &AccessResult{Accessible: true, AccessType: "sequential"}, nil
 	}
 
 	// Check if previous theme is completed.
@@ -254,12 +290,8 @@ func (uc *UseCase) CheckThemeAccess(ctx context.Context, userID int64, themeID i
 	if err != nil && !apperrors.IsNotFound(err) {
 		return nil, err
 	}
-
 	if prevProgress != nil && prevProgress.IsCompleted() {
-		return &AccessResult{
-			Accessible: true,
-			AccessType: "sequential",
-		}, nil
+		return &AccessResult{Accessible: true, AccessType: "sequential"}, nil
 	}
 
 	// Not accessible.

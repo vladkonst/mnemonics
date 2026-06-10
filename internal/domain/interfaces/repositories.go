@@ -7,6 +7,7 @@ import (
 	"context"
 
 	"github.com/vladkonst/mnemonics/internal/domain/content"
+	"github.com/vladkonst/mnemonics/internal/domain/feedback"
 	"github.com/vladkonst/mnemonics/internal/domain/progress"
 	"github.com/vladkonst/mnemonics/internal/domain/subscription"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
@@ -19,6 +20,7 @@ type UserRepository interface {
 	Create(ctx context.Context, u *user.User) error
 	GetByID(ctx context.Context, telegramID int64) (*user.User, error)
 	Update(ctx context.Context, u *user.User) error
+	Delete(ctx context.Context, telegramID int64) error
 	Exists(ctx context.Context, telegramID int64) (bool, error)
 	GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error)
 }
@@ -65,6 +67,16 @@ type TestRepository interface {
 	Delete(ctx context.Context, id int) error
 }
 
+// ModuleTestRepository abstracts persistence for ModuleTest aggregates.
+type ModuleTestRepository interface {
+	GetAll(ctx context.Context) ([]*content.ModuleTest, error)
+	GetByModuleID(ctx context.Context, moduleID int) ([]*content.ModuleTest, error)
+	GetByID(ctx context.Context, id int) (*content.ModuleTest, error)
+	Create(ctx context.Context, t *content.ModuleTest) error
+	Update(ctx context.Context, t *content.ModuleTest) (*content.ModuleTest, error)
+	Delete(ctx context.Context, id int) error
+}
+
 // ── Progress ─────────────────────────────────────────────────────────────────
 
 // ProgressRepository abstracts persistence for UserProgress aggregates.
@@ -85,19 +97,15 @@ type TestAttemptRepository interface {
 	GetByUserAndTheme(ctx context.Context, userID int64, themeID int) ([]*progress.TestAttempt, error)
 }
 
-// ── Subscription ─────────────────────────────────────────────────────────────
-
-// PromoCodeRepository abstracts persistence for PromoCode aggregates.
-type PromoCodeRepository interface {
-	GetByCode(ctx context.Context, code string) (*subscription.PromoCode, error)
-	Update(ctx context.Context, p *subscription.PromoCode) error
-	Create(ctx context.Context, p *subscription.PromoCode) error
-	Deactivate(ctx context.Context, code string) error
-	GetByTeacherID(ctx context.Context, teacherID int64) ([]*subscription.PromoCode, error)
-	// ConsumeOne atomically decrements remaining by 1 if remaining > 0.
-	// Returns ErrPromoCodeExhausted if no slots remain.
-	ConsumeOne(ctx context.Context, code string) error
+// ModuleTestAttemptRepository abstracts persistence for dynamically-generated module test attempts.
+type ModuleTestAttemptRepository interface {
+	Create(ctx context.Context, a *progress.ModuleTestAttempt) error
+	Update(ctx context.Context, a *progress.ModuleTestAttempt) error
+	GetByAttemptID(ctx context.Context, attemptID string) (*progress.ModuleTestAttempt, error)
+	GetByUserAndModule(ctx context.Context, userID int64, moduleID int) ([]*progress.ModuleTestAttempt, error)
 }
+
+// ── Subscription ─────────────────────────────────────────────────────────────
 
 // SubscriptionRepository abstracts persistence for Subscription records.
 type SubscriptionRepository interface {
@@ -108,7 +116,50 @@ type SubscriptionRepository interface {
 
 // TeacherStudentRepository abstracts the teacher↔student relationship table.
 type TeacherStudentRepository interface {
-	AddStudent(ctx context.Context, teacherID, studentID int64, promoCode string) error
+	AddStudent(ctx context.Context, teacherID, studentID int64, joinRef string) error
 	GetStudentsByTeacher(ctx context.Context, teacherID int64) ([]*user.User, error)
 	IsTeacherStudent(ctx context.Context, teacherID, studentID int64) (bool, error)
+}
+
+// ── Invite Links ─────────────────────────────────────────────────────────────
+
+// InviteLinkRepository abstracts persistence for teacher-generated invite links.
+type InviteLinkRepository interface {
+	Create(ctx context.Context, link *subscription.InviteLink) error
+	GetByID(ctx context.Context, id string) (*subscription.InviteLink, error)
+	GetByTeacherID(ctx context.Context, teacherID int64) ([]*subscription.InviteLink, error)
+	GetAll(ctx context.Context, limit, offset int) ([]*subscription.InviteLink, int, error)
+	AddActivation(ctx context.Context, a *subscription.InviteLinkActivation) error
+	GetActivations(ctx context.Context, linkID string) ([]*subscription.InviteLinkActivation, error)
+	CountActivations(ctx context.Context, linkID string) (int, error)
+}
+
+// ── Corporate Groups ──────────────────────────────────────────────────────────
+
+// CorporateGroupRepository abstracts persistence for corporate purchase and group entities.
+type CorporateGroupRepository interface {
+	CreatePurchase(ctx context.Context, p *subscription.CorporatePurchase) error
+	GetPurchaseByPaymentID(ctx context.Context, paymentID string) (*subscription.CorporatePurchase, error)
+	GetPurchasesByManagerID(ctx context.Context, managerID int64) ([]*subscription.CorporatePurchase, error)
+	GetAllPurchases(ctx context.Context) ([]*subscription.CorporatePurchase, error)
+	GetGroupsByPurchaseID(ctx context.Context, purchaseID string) ([]*subscription.CorporateGroup, error)
+
+	Create(ctx context.Context, g *subscription.CorporateGroup) error
+	GetByID(ctx context.Context, id string) (*subscription.CorporateGroup, error)
+	GetByJoinCode(ctx context.Context, code string) (*subscription.CorporateGroup, error)
+	GetByManagerID(ctx context.Context, managerID int64) ([]*subscription.CorporateGroup, error)
+	GetByTeacherID(ctx context.Context, teacherID int64) ([]*subscription.CorporateGroup, error)
+	GetByStudentLinkID(ctx context.Context, linkID string) (*subscription.CorporateGroup, error)
+	GetAllGroups(ctx context.Context) ([]*subscription.CorporateGroup, error)
+	ClaimByTeacher(ctx context.Context, groupID string, teacherID int64) error
+	UpdateName(ctx context.Context, groupID, name string) error
+}
+
+// ── Feedback ─────────────────────────────────────────────────────────────────
+
+// FeedbackRepository abstracts persistence for user feedback.
+type FeedbackRepository interface {
+	Create(ctx context.Context, f *feedback.Feedback) error
+	GetAll(ctx context.Context, limit, offset int) ([]*feedback.Feedback, int, error)
+	GetByID(ctx context.Context, id int) (*feedback.Feedback, error)
 }

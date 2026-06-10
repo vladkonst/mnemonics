@@ -19,11 +19,13 @@ import (
 	"github.com/vladkonst/mnemonics/internal/repository/sqlite"
 	adminUC "github.com/vladkonst/mnemonics/internal/usecase/admin"
 	contentUC "github.com/vladkonst/mnemonics/internal/usecase/content"
+	managerUC "github.com/vladkonst/mnemonics/internal/usecase/manager"
 	paymentUC "github.com/vladkonst/mnemonics/internal/usecase/payment"
 	progressUC "github.com/vladkonst/mnemonics/internal/usecase/progress"
 	subscriptionUC "github.com/vladkonst/mnemonics/internal/usecase/subscription"
 	teacherUC "github.com/vladkonst/mnemonics/internal/usecase/teacher"
 	userUC "github.com/vladkonst/mnemonics/internal/usecase/user"
+	"github.com/vladkonst/mnemonics/internal/infrastructure/pdf"
 	"github.com/vladkonst/mnemonics/pkg/logger"
 )
 
@@ -49,11 +51,14 @@ func main() {
 	themeRepo := sqlite.NewThemeRepo(db)
 	mnemonicRepo := sqlite.NewMnemonicRepo(db)
 	testRepo := sqlite.NewTestRepo(db)
+	moduleTestRepo := sqlite.NewModuleTestRepo(db)
 	progressRepo := sqlite.NewProgressRepo(db)
 	attemptRepo := sqlite.NewTestAttemptRepo(db)
-	promoCodeRepo := sqlite.NewPromoCodeRepo(db)
 	subscriptionRepo := sqlite.NewSubscriptionRepo(db)
 	teacherStudentRepo := sqlite.NewTeacherStudentRepo(db)
+	feedbackRepo := sqlite.NewFeedbackRepo(db)
+	inviteLinkRepo := sqlite.NewInviteLinkRepo(db)
+	corporateGroupRepo := sqlite.NewCorporateGroupRepo(db)
 
 	// ── External Services ────────────────────────────────────────────────────
 	var storageSvc interfaces.StorageService
@@ -76,6 +81,8 @@ func main() {
 	// ── Use Cases ────────────────────────────────────────────────────────────
 	userUseCase := userUC.NewUseCase(userRepo, subscriptionRepo)
 
+	moduleTestAttemptRepo := sqlite.NewModuleTestAttemptRepo(db)
+
 	contentUseCase := contentUC.NewUseCase(
 		moduleRepo,
 		themeRepo,
@@ -83,6 +90,7 @@ func main() {
 		testRepo,
 		progressRepo,
 		attemptRepo,
+		moduleTestAttemptRepo,
 		subscriptionRepo,
 		storageSvc,
 	)
@@ -96,18 +104,24 @@ func main() {
 	)
 
 	subscriptionUseCase := subscriptionUC.NewUseCase(
-		promoCodeRepo,
 		subscriptionRepo,
 		userRepo,
 		teacherStudentRepo,
+		inviteLinkRepo,
 		notificationSvc,
+		corporateGroupRepo,
 	)
+
+	botUsername := os.Getenv("BOT_USERNAME")
 
 	paymentUseCase := paymentUC.NewUseCase(
 		userRepo,
 		subscriptionRepo,
 		paymentSvc,
 		notificationSvc,
+		corporateGroupRepo,
+		inviteLinkRepo,
+		botUsername,
 	)
 
 	teacherUseCase := teacherUC.NewUseCase(
@@ -117,15 +131,23 @@ func main() {
 		moduleRepo,
 		themeRepo,
 		userRepo,
+		corporateGroupRepo,
+		inviteLinkRepo,
+		subscriptionRepo,
 	)
+
+	managerUseCase := managerUC.NewUseCase(corporateGroupRepo, pdf.Generate, botUsername)
 
 	adminUseCase := adminUC.NewUseCase(
 		moduleRepo,
 		themeRepo,
 		mnemonicRepo,
 		testRepo,
-		promoCodeRepo,
+		moduleTestRepo,
 		userRepo,
+		teacherStudentRepo,
+		feedbackRepo,
+		inviteLinkRepo,
 		db,
 	)
 
@@ -136,7 +158,9 @@ func main() {
 	subscriptionHandler := handlers.NewSubscriptionHandler(subscriptionUseCase)
 	paymentHandler := handlers.NewPaymentHandler(paymentUseCase)
 	teacherHandler := handlers.NewTeacherHandler(teacherUseCase)
-	adminHandler := handlers.NewAdminHandler(adminUseCase, storageSvc, cfg.UploadsDir)
+	adminHandler := handlers.NewAdminHandler(adminUseCase, managerUseCase, storageSvc, cfg.UploadsDir)
+	feedbackHandler := handlers.NewFeedbackHandler(feedbackRepo)
+	managerHandler := handlers.NewManagerHandler(managerUseCase)
 
 	// ── Router ───────────────────────────────────────────────────────────────
 	router := deliveryHTTP.NewRouter(
@@ -146,7 +170,9 @@ func main() {
 		subscriptionHandler,
 		paymentHandler,
 		teacherHandler,
+		managerHandler,
 		adminHandler,
+		feedbackHandler,
 		cfg.AdminToken,
 		log,
 	)

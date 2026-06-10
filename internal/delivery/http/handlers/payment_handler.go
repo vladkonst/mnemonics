@@ -75,6 +75,39 @@ func (h *PaymentHandler) GetPendingInvoice(w http.ResponseWriter, r *http.Reques
 	})
 }
 
+// createCorporatePurchaseRequest is the JSON body for POST /api/v1/users/{user_id}/corporate-purchases.
+type createCorporatePurchaseRequest struct {
+	Groups    int `json:"groups"`
+	Semesters int `json:"semesters"`
+}
+
+// CreateCorporatePurchase handles POST /api/v1/users/{user_id}/corporate-purchases.
+// Creates groups and invite links directly without going through a payment gateway.
+func (h *PaymentHandler) CreateCorporatePurchase(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUserID(r)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, userID) {
+		return
+	}
+
+	var req createCorporatePurchaseRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
+		return
+	}
+
+	paymentID, err := h.uc.CreateCorporatePurchaseDirect(r.Context(), userID, req.Groups, req.Semesters)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusCreated, map[string]string{"payment_id": paymentID})
+}
+
 // webhookRequest is the payload sent by the payment gateway.
 type webhookRequest struct {
 	PaymentID string `json:"payment_id"`

@@ -45,7 +45,7 @@ func (uc *UseCase) Register(ctx context.Context, telegramID int64, username stri
 	u := &user.User{
 		TelegramID:           telegramID,
 		Username:             usernamePtr,
-		Role:                 user.RoleStudent,
+		Role:                 user.RoleUnknown,
 		SubscriptionStatus:   user.SubscriptionStatusInactive,
 		Language:             "ru",
 		Timezone:             "UTC",

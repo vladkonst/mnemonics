@@ -3,9 +3,13 @@ package teacher
 
 import (
 	"context"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/vladkonst/mnemonics/internal/domain/interfaces"
 	"github.com/vladkonst/mnemonics/internal/domain/progress"
+	"github.com/vladkonst/mnemonics/internal/domain/subscription"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
 	"github.com/vladkonst/mnemonics/pkg/apperrors"
 )
@@ -70,6 +74,9 @@ type UseCase struct {
 	modules         interfaces.ModuleRepository
 	themes          interfaces.ThemeRepository
 	users           interfaces.UserRepository
+	corporateGroups interfaces.CorporateGroupRepository
+	inviteLinks     interfaces.InviteLinkRepository
+	subscriptions   interfaces.SubscriptionRepository
 }
 
 // NewUseCase creates a new teacher UseCase.
@@ -80,6 +87,9 @@ func NewUseCase(
 	modules interfaces.ModuleRepository,
 	themes interfaces.ThemeRepository,
 	users interfaces.UserRepository,
+	corporateGroups interfaces.CorporateGroupRepository,
+	inviteLinks interfaces.InviteLinkRepository,
+	subscriptions interfaces.SubscriptionRepository,
 ) *UseCase {
 	return &UseCase{
 		teacherStudents: teacherStudents,
@@ -88,6 +98,9 @@ func NewUseCase(
 		modules:         modules,
 		themes:          themes,
 		users:           users,
+		corporateGroups: corporateGroups,
+		inviteLinks:     inviteLinks,
+		subscriptions:   subscriptions,
 	}
 }
 
@@ -317,4 +330,199 @@ func (uc *UseCase) GetStatistics(ctx context.Context, teacherID int64) (*GroupSt
 		CompletionRate: completionRate,
 		StudentStats:   statItems,
 	}, nil
+}
+
+// ── Corporate group methods ───────────────────────────────────────────────────
+
+// ClaimCorporateGroup lets a teacher claim an unclaimed corporate group via a join code.
+// It also grants the teacher an active subscription for the group's semester duration.
+func (uc *UseCase) ClaimCorporateGroup(ctx context.Context, teacherID int64, joinCode string) (*subscription.CorporateGroup, error) {
+	group, err := uc.corporateGroups.GetByJoinCode(ctx, joinCode)
+	if err != nil {
+		return nil, err
+	}
+	if err := uc.corporateGroups.ClaimByTeacher(ctx, group.ID, teacherID); err != nil {
+		return nil, err
+	}
+
+	// Set teacher role.
+	u, err := uc.users.GetByID(ctx, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	u.SetRole(user.RoleTeacher)
+	if err := uc.users.Update(ctx, u); err != nil {
+		return nil, err
+	}
+
+	// Grant subscription if not already active.
+	existing, err := uc.subscriptions.GetActiveByUserID(ctx, teacherID)
+	if err != nil && !apperrors.IsNotFound(err) {
+		return nil, err
+	}
+	if existing == nil || !existing.IsActive() {
+		expiresAt := time.Now().UTC().AddDate(0, group.Semesters*5, 0)
+		paymentID := fmt.Sprintf("corp-teacher-%s-%d-%d", group.ID, teacherID, time.Now().UnixNano())
+		sub := &subscription.Subscription{
+			PaymentID: paymentID,
+			UserID:    teacherID,
+			Type:      subscription.SubscriptionTypeUniversity,
+			Status:    subscription.SubscriptionPlanStatusActive,
+			ExpiresAt: &expiresAt,
+			CreatedAt: time.Now().UTC(),
+		}
+		if err := uc.subscriptions.Create(ctx, sub); err != nil {
+			return nil, err
+		}
+	}
+
+	// Return updated group.
+	return uc.corporateGroups.GetByID(ctx, group.ID)
+}
+
+// GetCorporateGroupsWithStats returns all corporate groups claimed by a teacher, with student counts.
+func (uc *UseCase) GetCorporateGroupsWithStats(ctx context.Context, teacherID int64) ([]*subscription.CorporateGroupWithStats, error) {
+	groups, err := uc.corporateGroups.GetByTeacherID(ctx, teacherID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]*subscription.CorporateGroupWithStats, len(groups))
+	for i, g := range groups {
+		count, _ := uc.inviteLinks.CountActivations(ctx, g.StudentLinkID)
+		result[i] = &subscription.CorporateGroupWithStats{CorporateGroup: g, StudentCount: count}
+	}
+	return result, nil
+}
+
+// GetCorporateGroupStudents returns the students of a specific corporate group,
+// verifying the requesting teacher actually owns that group.
+func (uc *UseCase) GetCorporateGroupStudents(ctx context.Context, teacherID int64, groupID string) (*StudentsResult, error) {
+	group, err := uc.corporateGroups.GetByID(ctx, groupID)
+	if err != nil {
+		return nil, err
+	}
+	if group.TeacherID == nil || *group.TeacherID != teacherID {
+		return nil, apperrors.ErrForbidden
+	}
+
+	activations, err := uc.inviteLinks.GetActivations(ctx, group.StudentLinkID)
+	if err != nil {
+		return nil, err
+	}
+
+	summaries := make([]*StudentSummary, 0, len(activations))
+	for _, act := range activations {
+		s, err := uc.users.GetByID(ctx, act.UserID)
+		if err != nil {
+			continue
+		}
+		allProgress, err := uc.progress.GetByUser(ctx, s.TelegramID)
+		if err != nil {
+			continue
+		}
+
+		completed := 0
+		scoreSum, scoreCount := 0, 0
+		for _, p := range allProgress {
+			if p.IsCompleted() {
+				completed++
+				if p.Score != nil {
+					scoreSum += *p.Score
+					scoreCount++
+				}
+			}
+		}
+
+		var avgScore *int
+		if scoreCount > 0 {
+			avg := scoreSum / scoreCount
+			avgScore = &avg
+		}
+
+		summaries = append(summaries, &StudentSummary{
+			User:            s,
+			CompletedThemes: completed,
+			AverageScore:    avgScore,
+		})
+	}
+
+	return &StudentsResult{
+		TeacherID: teacherID,
+		Students:  summaries,
+		Total:     len(summaries),
+	}, nil
+}
+
+// GetCorporateGroupStats returns aggregate statistics for a corporate group.
+func (uc *UseCase) GetCorporateGroupStats(ctx context.Context, teacherID int64, groupID string) (*GroupStatisticsResult, error) {
+	studentsResult, err := uc.GetCorporateGroupStudents(ctx, teacherID, groupID)
+	if err != nil {
+		return nil, err
+	}
+
+	modules, err := uc.modules.GetAll(ctx)
+	if err != nil {
+		return nil, err
+	}
+	totalThemesGlobal := 0
+	for _, m := range modules {
+		themes, err := uc.themes.GetByModuleID(ctx, m.ID)
+		if err != nil {
+			return nil, err
+		}
+		totalThemesGlobal += len(themes)
+	}
+
+	statItems := make([]*GroupStatItem, 0, len(studentsResult.Students))
+	groupScoreSum, groupScoreCount := 0, 0
+	totalCompleted := 0
+
+	for _, s := range studentsResult.Students {
+		totalCompleted += s.CompletedThemes
+		if s.AverageScore != nil {
+			groupScoreSum += *s.AverageScore
+			groupScoreCount++
+		}
+		statItems = append(statItems, &GroupStatItem{
+			Student:         s.User,
+			CompletedThemes: s.CompletedThemes,
+			AverageScore:    s.AverageScore,
+		})
+	}
+
+	var groupAvg *int
+	if groupScoreCount > 0 {
+		avg := groupScoreSum / groupScoreCount
+		groupAvg = &avg
+	}
+
+	var completionRate float64
+	n := len(studentsResult.Students)
+	if n > 0 && totalThemesGlobal > 0 {
+		completionRate = float64(totalCompleted) / float64(n*totalThemesGlobal) * 100
+	}
+
+	return &GroupStatisticsResult{
+		TeacherID:      teacherID,
+		TotalStudents:  n,
+		AverageScore:   groupAvg,
+		CompletionRate: completionRate,
+		StudentStats:   statItems,
+	}, nil
+}
+
+// RenameCorporateGroup updates the display name of a corporate group the teacher owns.
+func (uc *UseCase) RenameCorporateGroup(ctx context.Context, teacherID int64, groupID, newName string) error {
+	group, err := uc.corporateGroups.GetByID(ctx, groupID)
+	if err != nil {
+		return err
+	}
+	if group.TeacherID == nil || *group.TeacherID != teacherID {
+		return apperrors.ErrForbidden
+	}
+	newName = strings.TrimSpace(newName)
+	if newName == "" || len([]rune(newName)) > 100 {
+		return apperrors.ErrInvalidInput
+	}
+	return uc.corporateGroups.UpdateName(ctx, groupID, newName)
 }

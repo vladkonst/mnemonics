@@ -19,7 +19,7 @@ func NewMnemonicRepo(db *sql.DB) *MnemonicRepo {
 
 func (r *MnemonicRepo) GetByThemeID(ctx context.Context, themeID int) ([]*content.Mnemonic, error) {
 	const q = `
-		SELECT id, theme_id, type, content_text, s3_image_key, order_num, created_at
+		SELECT id, theme_id, type, content_text, s3_image_key, term_ru, term_latin, order_num, created_at
 		FROM mnemonics WHERE theme_id = ? ORDER BY order_num`
 
 	rows, err := r.db.QueryContext(ctx, q, themeID)
@@ -34,7 +34,7 @@ func (r *MnemonicRepo) GetByThemeID(ctx context.Context, themeID int) ([]*conten
 		var typeStr string
 		err := rows.Scan(
 			&m.ID, &m.ThemeID, &typeStr,
-			&m.ContentText, &m.S3ImageKey, &m.OrderNum, &m.CreatedAt,
+			&m.ContentText, &m.S3ImageKey, &m.TermRu, &m.TermLatin, &m.OrderNum, &m.CreatedAt,
 		)
 		if err != nil {
 			return nil, err
@@ -47,11 +47,11 @@ func (r *MnemonicRepo) GetByThemeID(ctx context.Context, themeID int) ([]*conten
 
 func (r *MnemonicRepo) Create(ctx context.Context, m *content.Mnemonic) error {
 	const q = `
-		INSERT INTO mnemonics (theme_id, type, content_text, s3_image_key, order_num)
-		VALUES (?, ?, ?, ?, ?)`
+		INSERT INTO mnemonics (theme_id, type, content_text, s3_image_key, term_ru, term_latin, order_num)
+		VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	res, err := r.db.ExecContext(ctx, q,
-		m.ThemeID, string(m.Type), m.ContentText, m.S3ImageKey, m.OrderNum,
+		m.ThemeID, string(m.Type), m.ContentText, m.S3ImageKey, m.TermRu, m.TermLatin, m.OrderNum,
 	)
 	if err != nil {
 		return err
@@ -72,8 +72,8 @@ func (r *MnemonicRepo) GetMaxOrderNum(ctx context.Context, themeID int) (int, er
 }
 
 func (r *MnemonicRepo) Update(ctx context.Context, m *content.Mnemonic) (*content.Mnemonic, error) {
-	const q = `UPDATE mnemonics SET content_text = ?, s3_image_key = ?, order_num = ? WHERE id = ?`
-	res, err := r.db.ExecContext(ctx, q, m.ContentText, m.S3ImageKey, m.OrderNum, m.ID)
+	const q = `UPDATE mnemonics SET content_text = ?, s3_image_key = ?, term_ru = ?, term_latin = ?, order_num = ? WHERE id = ?`
+	res, err := r.db.ExecContext(ctx, q, m.ContentText, m.S3ImageKey, m.TermRu, m.TermLatin, m.OrderNum, m.ID)
 	if err != nil {
 		return nil, err
 	}

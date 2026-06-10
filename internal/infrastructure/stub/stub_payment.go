@@ -3,6 +3,8 @@ package stub
 import (
 	"context"
 	"fmt"
+	"strconv"
+	"strings"
 
 	"github.com/google/uuid"
 )
@@ -20,11 +22,24 @@ func (s *PaymentService) CreateInvoice(_ context.Context, userID int64, plan str
 	invoiceID = uuid.NewString()
 	paymentURL = fmt.Sprintf("https://stub-payment.example.com/pay/%s", invoiceID)
 
-	switch plan {
-	case "yearly":
-		amount = 9900
+	switch {
+	case plan == "yearly":
+		amount = 2990
+	case strings.HasPrefix(plan, "corporate"):
+		// plan format: "corporate" or "corporate:groups:semesters"
+		parts := strings.SplitN(plan, ":", 3)
+		groups, semesters := 1, 1
+		if len(parts) == 3 {
+			if g, err := strconv.Atoi(parts[1]); err == nil && g > 0 {
+				groups = g
+			}
+			if s, err := strconv.Atoi(parts[2]); err == nil && s > 0 {
+				semesters = s
+			}
+		}
+		amount = 4470 * groups * semesters
 	default:
-		amount = 990
+		amount = 149
 	}
 
 	return invoiceID, paymentURL, amount, nil

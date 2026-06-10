@@ -187,6 +187,38 @@ func (m *mockSubscriptionRepo) GetByPaymentID(ctx context.Context, paymentID str
 	return s, nil
 }
 
+type mockModuleTestRepo struct{}
+
+func (m *mockModuleTestRepo) GetAll(ctx context.Context) ([]*content.ModuleTest, error) {
+	return nil, nil
+}
+func (m *mockModuleTestRepo) GetByModuleID(ctx context.Context, moduleID int) ([]*content.ModuleTest, error) {
+	return nil, nil
+}
+func (m *mockModuleTestRepo) GetByID(ctx context.Context, id int) (*content.ModuleTest, error) {
+	return nil, apperrors.ErrNotFound
+}
+func (m *mockModuleTestRepo) Create(ctx context.Context, t *content.ModuleTest) error { return nil }
+func (m *mockModuleTestRepo) Update(ctx context.Context, t *content.ModuleTest) (*content.ModuleTest, error) {
+	return t, nil
+}
+func (m *mockModuleTestRepo) Delete(ctx context.Context, id int) error { return nil }
+
+type mockModuleTestAttemptRepo struct{}
+
+func (m *mockModuleTestAttemptRepo) Create(ctx context.Context, a *progress.ModuleTestAttempt) error {
+	return nil
+}
+func (m *mockModuleTestAttemptRepo) Update(ctx context.Context, a *progress.ModuleTestAttempt) error {
+	return nil
+}
+func (m *mockModuleTestAttemptRepo) GetByAttemptID(ctx context.Context, id string) (*progress.ModuleTestAttempt, error) {
+	return nil, apperrors.ErrNotFound
+}
+func (m *mockModuleTestAttemptRepo) GetByUserAndModule(ctx context.Context, userID int64, moduleID int) ([]*progress.ModuleTestAttempt, error) {
+	return nil, nil
+}
+
 type mockStorageService struct{}
 
 func (m *mockStorageService) UploadFile(ctx context.Context, key string, body io.Reader, size int64, contentType string) error {
@@ -204,12 +236,13 @@ func newTestUseCase(
 	subRepo *mockSubscriptionRepo,
 ) *ucContent.UseCase {
 	return ucContent.NewUseCase(
-		&mockModuleRepo{},
+		&mockModuleRepo{modules: []*content.Module{{ID: 1, Name: "Module 1", OrderNum: 1}}},
 		themeRepo,
 		&mockMnemonicRepo{},
 		&mockTestRepo{tests: map[int]*content.Test{}},
 		progressRepo,
 		&mockAttemptRepo{attempts: map[string]*progress.TestAttempt{}},
+		&mockModuleTestAttemptRepo{},
 		subRepo,
 		&mockStorageService{},
 	)
@@ -229,6 +262,7 @@ func newFullUseCase(
 		testRepo,
 		progressRepo,
 		attemptRepo,
+		&mockModuleTestAttemptRepo{},
 		subRepo,
 		&mockStorageService{},
 	)
@@ -424,8 +458,8 @@ func TestSubmitTestAttempt_Passed(t *testing.T) {
 		PassingScore: 60,
 		Difficulty:   2,
 		Questions: []content.Question{
-			{ID: 1, Text: "Q1", Type: content.QuestionTypeMultipleChoice, CorrectAnswer: "A", Options: []string{"A", "B"}},
-			{ID: 2, Text: "Q2", Type: content.QuestionTypeMultipleChoice, CorrectAnswer: "B", Options: []string{"A", "B"}},
+			{ID: 1, Text: "Q1", CorrectAnswer: "A"},
+			{ID: 2, Text: "Q2", CorrectAnswer: "B"},
 		},
 	}
 	testRepo := &mockTestRepo{tests: map[int]*content.Test{themeID: testObj}}
@@ -498,8 +532,8 @@ func TestSubmitTestAttempt_Failed(t *testing.T) {
 		PassingScore: 80,
 		Difficulty:   2,
 		Questions: []content.Question{
-			{ID: 1, Text: "Q1", CorrectAnswer: "A", Options: []string{"A", "B"}},
-			{ID: 2, Text: "Q2", CorrectAnswer: "B", Options: []string{"A", "B"}},
+			{ID: 1, Text: "Q1", CorrectAnswer: "A"},
+			{ID: 2, Text: "Q2", CorrectAnswer: "B"},
 		},
 	}
 	testRepo := &mockTestRepo{tests: map[int]*content.Test{themeID: testObj}}
@@ -566,7 +600,7 @@ func TestSubmitTestAttempt_IdempotentResubmit(t *testing.T) {
 		PassingScore: 60,
 		Difficulty:   1,
 		Questions: []content.Question{
-			{ID: 1, Text: "Q1", CorrectAnswer: "A", Options: []string{"A", "B"}},
+			{ID: 1, Text: "Q1", CorrectAnswer: "A"},
 		},
 	}
 	testRepo := &mockTestRepo{tests: map[int]*content.Test{themeID: testObj}}

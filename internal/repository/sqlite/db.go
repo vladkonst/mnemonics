@@ -12,7 +12,7 @@ import (
 
 // Open opens a SQLite database at the given path and runs pending migrations.
 func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
-	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_foreign_keys=on")
+	db, err := sql.Open("sqlite", dbPath+"?_journal_mode=WAL&_foreign_keys=1")
 	if err != nil {
 		return nil, fmt.Errorf("open sqlite: %w", err)
 	}
@@ -24,6 +24,13 @@ func Open(ctx context.Context, dbPath string) (*sql.DB, error) {
 	if err := db.PingContext(ctx); err != nil {
 		_ = db.Close()
 		return nil, fmt.Errorf("ping sqlite: %w", err)
+	}
+
+	// Explicitly enable foreign keys — required for ON DELETE CASCADE to fire.
+	// The DSN parameter alone is not always honoured by modernc.org/sqlite.
+	if _, err := db.ExecContext(ctx, "PRAGMA foreign_keys = ON"); err != nil {
+		_ = db.Close()
+		return nil, fmt.Errorf("enable foreign keys: %w", err)
 	}
 
 	if err := runMigrations(db); err != nil {

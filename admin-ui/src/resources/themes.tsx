@@ -4,19 +4,20 @@ import {
   ReferenceInput, SelectInput,
   required, EditButton, DeleteButton,
 } from 'react-admin';
+import LinkedIdField from '../LinkedIdField';
 
 export const ThemeList = () => (
   <List sort={{ field: 'id', order: 'ASC' }}>
     <Datagrid>
       <NumberField source="id" label="ID" />
-      <NumberField source="module_id" label="Модуль ID" />
+      <LinkedIdField source="module_id" reference="modules" label="Модуль ID" />
       <TextField source="name" label="Название" />
       <BooleanField source="is_introduction" label="Введение" />
       <BooleanField source="is_locked" label="Заблокирована" />
       <NumberField source="estimated_time_minutes" label="Время (мин)" />
       <DateField source="created_at" label="Создана" />
       <EditButton />
-      <DeleteButton />
+      <DeleteButton mutationMode="pessimistic" />
     </Datagrid>
   </List>
 );

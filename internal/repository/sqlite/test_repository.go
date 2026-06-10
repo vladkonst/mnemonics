@@ -22,7 +22,7 @@ func NewTestRepo(db *sql.DB) *TestRepo {
 func (r *TestRepo) GetByThemeID(ctx context.Context, themeID int) (*content.Test, error) {
 	const q = `
 		SELECT id, theme_id, questions_json, difficulty, passing_score,
-		       shuffle_questions, shuffle_answers, created_at
+		       shuffle_questions, created_at
 		FROM tests WHERE theme_id = ?`
 
 	row := r.db.QueryRowContext(ctx, q, themeID)
@@ -32,7 +32,7 @@ func (r *TestRepo) GetByThemeID(ctx context.Context, themeID int) (*content.Test
 func (r *TestRepo) GetByID(ctx context.Context, id int) (*content.Test, error) {
 	const q = `
 		SELECT id, theme_id, questions_json, difficulty, passing_score,
-		       shuffle_questions, shuffle_answers, created_at
+		       shuffle_questions, created_at
 		FROM tests WHERE id = ?`
 
 	row := r.db.QueryRowContext(ctx, q, id)
@@ -46,12 +46,12 @@ func (r *TestRepo) Create(ctx context.Context, t *content.Test) error {
 	}
 
 	const q = `
-		INSERT INTO tests (theme_id, questions_json, difficulty, passing_score, shuffle_questions, shuffle_answers)
-		VALUES (?, ?, ?, ?, ?, ?)`
+		INSERT INTO tests (theme_id, questions_json, difficulty, passing_score, shuffle_questions)
+		VALUES (?, ?, ?, ?, ?)`
 
 	res, err := r.db.ExecContext(ctx, q,
 		t.ThemeID, string(questionsJSON), t.Difficulty, t.PassingScore,
-		boolToInt(t.ShuffleQuestions), boolToInt(t.ShuffleAnswers),
+		boolToInt(t.ShuffleQuestions),
 	)
 	if err != nil {
 		return err
@@ -71,11 +71,11 @@ func (r *TestRepo) Update(ctx context.Context, t *content.Test) (*content.Test, 
 	}
 	const q = `
 		UPDATE tests SET questions_json = ?, difficulty = ?, passing_score = ?,
-		                 shuffle_questions = ?, shuffle_answers = ?
+		                 shuffle_questions = ?
 		WHERE id = ?`
 	res, err := r.db.ExecContext(ctx, q,
 		string(questionsJSON), t.Difficulty, t.PassingScore,
-		boolToInt(t.ShuffleQuestions), boolToInt(t.ShuffleAnswers), t.ID,
+		boolToInt(t.ShuffleQuestions), t.ID,
 	)
 	if err != nil {
 		return nil, err
@@ -108,11 +108,11 @@ func (r *TestRepo) Delete(ctx context.Context, id int) error {
 func scanTest(row *sql.Row) (*content.Test, error) {
 	var t content.Test
 	var questionsJSON string
-	var shuffleQInt, shuffleAInt int
+	var shuffleQInt int
 
 	err := row.Scan(
 		&t.ID, &t.ThemeID, &questionsJSON, &t.Difficulty, &t.PassingScore,
-		&shuffleQInt, &shuffleAInt, &t.CreatedAt,
+		&shuffleQInt, &t.CreatedAt,
 	)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -126,6 +126,5 @@ func scanTest(row *sql.Row) (*content.Test, error) {
 	}
 
 	t.ShuffleQuestions = shuffleQInt != 0
-	t.ShuffleAnswers = shuffleAInt != 0
 	return &t, nil
 }

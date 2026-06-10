@@ -22,6 +22,8 @@ type Mnemonic struct {
 	Type        MnemonicType `json:"type"`
 	ContentText *string      `json:"content_text,omitempty"`
 	S3ImageKey  *string      `json:"s3_image_key,omitempty"`
+	TermRu      *string      `json:"term_ru,omitempty"`
+	TermLatin   *string      `json:"term_latin,omitempty"`
 	OrderNum    int          `json:"order_num"`
 	CreatedAt   time.Time    `json:"created_at"`
 }

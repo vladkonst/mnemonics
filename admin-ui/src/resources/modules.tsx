@@ -14,7 +14,7 @@ export const ModuleList = () => (
       <TextField source="icon_emoji" label="Иконка" />
       <DateField source="created_at" label="Создан" />
       <EditButton />
-      <DeleteButton />
+      <DeleteButton mutationMode="pessimistic" />
     </Datagrid>
   </List>
 );

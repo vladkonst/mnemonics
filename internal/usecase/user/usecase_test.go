@@ -48,6 +48,7 @@ func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error) {
 func (m *mockUserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
 	return nil, 0, nil
 }
+func (m *mockUserRepo) Delete(ctx context.Context, id int64) error { return nil }
 
 type mockSubRepo struct {
 	data map[int64]*subscription.Subscription
@@ -91,8 +92,8 @@ func TestRegister_HappyPath(t *testing.T) {
 	if u.TelegramID != 100 {
 		t.Errorf("TelegramID = %d, want 100", u.TelegramID)
 	}
-	if u.Role != user.RoleStudent {
-		t.Errorf("Role = %q, want student", u.Role)
+	if u.Role != user.RoleUnknown {
+		t.Errorf("Role = %q, want unknown", u.Role)
 	}
 	if u.SubscriptionStatus != user.SubscriptionStatusInactive {
 		t.Errorf("SubscriptionStatus = %q, want inactive", u.SubscriptionStatus)

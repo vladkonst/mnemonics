@@ -144,6 +144,11 @@ func (r *UserRepo) GetAll(ctx context.Context, role, subStatus string, limit, of
 	return users, total, nil
 }
 
+func (r *UserRepo) Delete(ctx context.Context, telegramID int64) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM users WHERE telegram_id = ?`, telegramID)
+	return err
+}
+
 func (r *UserRepo) Exists(ctx context.Context, telegramID int64) (bool, error) {
 	const q = `SELECT COUNT(1) FROM users WHERE telegram_id = ?`
 	var count int

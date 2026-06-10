@@ -15,17 +15,16 @@ var (
 	ErrNotTeacher      = errors.New("user is not a teacher")
 	ErrNotYourStudent  = errors.New("student does not belong to this teacher")
 	// 400
-	ErrInvalidInput       = errors.New("invalid input")
-	ErrPromoCodeNotActive = errors.New("promo code is not active")
-	ErrPromoCodeExpired   = errors.New("promo code has expired")
-	ErrPromoCodeExhausted = errors.New("promo code has no remaining activations")
-	ErrAlreadyActivated   = errors.New("promo code already activated by a teacher")
-	ErrInvalidScore       = errors.New("score must be between 0 and 100")
+	ErrInvalidInput        = errors.New("invalid input")
+	ErrInviteLinkExhausted = errors.New("invite link has no remaining activations")
+	ErrInvalidScore        = errors.New("score must be between 0 and 100")
 	ErrInvalidStatus      = errors.New("invalid status transition")
 	ErrAccessDenied       = errors.New("theme access denied: complete previous theme first")
 	// 409 payment
 	ErrActiveSubscriptionExists = errors.New("user already has an active subscription")
 	ErrPaymentAlreadyProcessed  = errors.New("payment already processed")
+	// 409 corporate groups
+	ErrGroupAlreadyClaimed = errors.New("teacher slot already claimed for this group")
 )
 
 // AppError wraps a sentinel error with an HTTP-friendly code and message.
@@ -51,16 +50,14 @@ func IsConflict(err error) bool {
 	return errors.Is(err, ErrAlreadyExists) ||
 		errors.Is(err, ErrAlreadyConsumed) ||
 		errors.Is(err, ErrActiveSubscriptionExists) ||
-		errors.Is(err, ErrPaymentAlreadyProcessed)
+		errors.Is(err, ErrPaymentAlreadyProcessed) ||
+		errors.Is(err, ErrGroupAlreadyClaimed)
 }
 
 // IsBadRequest reports whether err is a client-error (400) type error.
 func IsBadRequest(err error) bool {
 	return errors.Is(err, ErrInvalidInput) ||
-		errors.Is(err, ErrPromoCodeNotActive) ||
-		errors.Is(err, ErrPromoCodeExpired) ||
-		errors.Is(err, ErrPromoCodeExhausted) ||
-		errors.Is(err, ErrAlreadyActivated) ||
+		errors.Is(err, ErrInviteLinkExhausted) ||
 		errors.Is(err, ErrInvalidScore) ||
 		errors.Is(err, ErrInvalidStatus)
 }

@@ -18,6 +18,7 @@ import (
 	"github.com/vladkonst/mnemonics/internal/repository/sqlite"
 	adminUC "github.com/vladkonst/mnemonics/internal/usecase/admin"
 	contentUC "github.com/vladkonst/mnemonics/internal/usecase/content"
+	managerUC "github.com/vladkonst/mnemonics/internal/usecase/manager"
 	paymentUC "github.com/vladkonst/mnemonics/internal/usecase/payment"
 	progressUC "github.com/vladkonst/mnemonics/internal/usecase/progress"
 	subscriptionUC "github.com/vladkonst/mnemonics/internal/usecase/subscription"
@@ -42,11 +43,15 @@ func newTestServer(t *testing.T) *httptest.Server {
 	themeRepo := sqlite.NewThemeRepo(db)
 	mnemonicRepo := sqlite.NewMnemonicRepo(db)
 	testRepo := sqlite.NewTestRepo(db)
+	moduleTestRepo := sqlite.NewModuleTestRepo(db)
 	progressRepo := sqlite.NewProgressRepo(db)
 	attemptRepo := sqlite.NewTestAttemptRepo(db)
-	promoCodeRepo := sqlite.NewPromoCodeRepo(db)
+	moduleTestAttemptRepo := sqlite.NewModuleTestAttemptRepo(db)
 	subscriptionRepo := sqlite.NewSubscriptionRepo(db)
 	teacherStudentRepo := sqlite.NewTeacherStudentRepo(db)
+	feedbackRepo := sqlite.NewFeedbackRepo(db)
+	inviteLinkRepo := sqlite.NewInviteLinkRepo(db)
+	corporateGroupRepo := sqlite.NewCorporateGroupRepo(db)
 
 	storageSvc := stub.NewStorageService(t.TempDir())
 	paymentSvc := stub.NewPaymentService()
@@ -55,23 +60,24 @@ func newTestServer(t *testing.T) *httptest.Server {
 	userUseCase := userUC.NewUseCase(userRepo, subscriptionRepo)
 	contentUseCase := contentUC.NewUseCase(
 		moduleRepo, themeRepo, mnemonicRepo, testRepo,
-		progressRepo, attemptRepo, subscriptionRepo, storageSvc,
+		progressRepo, attemptRepo, moduleTestAttemptRepo, subscriptionRepo, storageSvc,
 	)
 	progressUseCase := progressUC.NewUseCase(
 		progressRepo, attemptRepo, testRepo, themeRepo, moduleRepo,
 	)
 	subscriptionUseCase := subscriptionUC.NewUseCase(
-		promoCodeRepo, subscriptionRepo, userRepo, teacherStudentRepo, notificationSvc,
+		subscriptionRepo, userRepo, teacherStudentRepo, inviteLinkRepo, notificationSvc, corporateGroupRepo,
 	)
 	paymentUseCase := paymentUC.NewUseCase(
-		userRepo, subscriptionRepo, paymentSvc, notificationSvc,
+		userRepo, subscriptionRepo, paymentSvc, notificationSvc, corporateGroupRepo, inviteLinkRepo, "",
 	)
 	teacherUseCase := teacherUC.NewUseCase(
-		teacherStudentRepo, progressRepo, attemptRepo, moduleRepo, themeRepo, userRepo,
+		teacherStudentRepo, progressRepo, attemptRepo, moduleRepo, themeRepo, userRepo, corporateGroupRepo, inviteLinkRepo, subscriptionRepo,
 	)
 	adminUseCase := adminUC.NewUseCase(
-		moduleRepo, themeRepo, mnemonicRepo, testRepo, promoCodeRepo, userRepo, db,
+		moduleRepo, themeRepo, mnemonicRepo, testRepo, moduleTestRepo, userRepo, teacherStudentRepo, feedbackRepo, inviteLinkRepo, db,
 	)
+	managerUseCase := managerUC.NewUseCase(corporateGroupRepo, nil, "")
 
 	router := deliveryHTTP.NewRouter(
 		handlers.NewUserHandler(userUseCase),
@@ -80,7 +86,9 @@ func newTestServer(t *testing.T) *httptest.Server {
 		handlers.NewSubscriptionHandler(subscriptionUseCase),
 		handlers.NewPaymentHandler(paymentUseCase),
 		handlers.NewTeacherHandler(teacherUseCase),
-		handlers.NewAdminHandler(adminUseCase, storageSvc, t.TempDir()),
+		handlers.NewManagerHandler(managerUseCase),
+		handlers.NewAdminHandler(adminUseCase, managerUseCase, storageSvc, t.TempDir()),
+		handlers.NewFeedbackHandler(feedbackRepo),
 		testAdminToken,
 		zerolog.Nop(),
 	)
@@ -388,44 +396,6 @@ func TestE2E_UserProgress_Empty(t *testing.T) {
 
 // ── Admin: promo codes ────────────────────────────────────────────────────────
 
-func TestE2E_AdminCreatePromoCode(t *testing.T) {
-	srv := newTestServer(t)
-	defer srv.Close()
-
-	headers := map[string]string{"X-Admin-Token": testAdminToken}
-	body := map[string]any{
-		"code":            "UNI2024",
-		"university_name": "MSU",
-		"max_activations": 10,
-	}
-
-	resp := doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes", body, headers)
-	if resp.StatusCode != http.StatusCreated {
-		t.Errorf("status = %d, want 201", resp.StatusCode)
-	}
-	var result map[string]any
-	decodeJSON(t, resp, &result)
-	if result["code"] != "UNI2024" {
-		t.Errorf("code = %v, want UNI2024", result["code"])
-	}
-}
-
-func TestE2E_AdminDeactivatePromoCode(t *testing.T) {
-	srv := newTestServer(t)
-	defer srv.Close()
-
-	adminH := map[string]string{"X-Admin-Token": testAdminToken}
-
-	doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes",
-		map[string]any{"code": "DEL2024", "university_name": "SPbU", "max_activations": 5}, adminH)
-
-	resp := doJSON(t, srv, http.MethodDelete, "/api/v1/admin/promo-codes/DEL2024", nil, adminH)
-	defer resp.Body.Close()
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("status = %d, want 200", resp.StatusCode)
-	}
-}
-
 func TestE2E_AdminGetUsers(t *testing.T) {
 	srv := newTestServer(t)
 	defer srv.Close()
@@ -543,11 +513,10 @@ func TestE2E_StartAndSubmitTestAttempt(t *testing.T) {
 	doJSON(t, srv, http.MethodPost, "/api/v1/admin/content/tests",
 		map[string]any{
 			"theme_id": themeID, "difficulty": 2, "passing_score": 70,
-			"shuffle_questions": false, "shuffle_answers": false,
+			"shuffle_questions": false,
 			"questions": []map[string]any{
 				{
-					"id": 1, "text": "What is 2+2?", "type": "multiple_choice",
-					"options": []string{"3", "4", "5"}, "correct_answer": "4", "order_num": 1,
+					"id": 1, "text": "What is 2+2?", "correct_answer": "4", "order_num": 1,
 				},
 			},
 		}, adminH)
@@ -639,54 +608,6 @@ func TestE2E_GetModuleProgress(t *testing.T) {
 	resp.Body.Close()
 }
 
-// ── Subscription: promo code activation ──────────────────────────────────────
-
-func TestE2E_SubscriptionPromoFlow(t *testing.T) {
-	srv := newTestServer(t)
-	defer srv.Close()
-
-	adminH := map[string]string{"X-Admin-Token": testAdminToken}
-	teacherH := map[string]string{"X-Telegram-User-Id": "2000"}
-	studentH := map[string]string{"X-Telegram-User-Id": "2001"}
-
-	// Register teacher and student
-	doJSON(t, srv, http.MethodPost, "/api/v1/users",
-		map[string]any{"telegram_id": 2000, }, teacherH)
-	doJSON(t, srv, http.MethodPost, "/api/v1/users",
-		map[string]any{"telegram_id": 2001, }, studentH)
-
-	// Set teacher role
-	doJSON(t, srv, http.MethodPatch, "/api/v1/users/2000",
-		map[string]any{"role": "teacher"}, teacherH)
-
-	// Admin creates promo code
-	doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes",
-		map[string]any{"code": "FLOW2024", "university_name": "TestU", "max_activations": 5}, adminH)
-
-	// Teacher activates promo code
-	activateResp := doJSON(t, srv, http.MethodPost, "/api/v1/teachers/2000/promo-codes",
-		map[string]any{"code": "FLOW2024"}, teacherH)
-	if activateResp.StatusCode != http.StatusOK {
-		t.Errorf("ActivatePromoCode: status = %d, want 200", activateResp.StatusCode)
-	}
-	activateResp.Body.Close()
-
-	// Teacher gets their promo codes
-	listResp := doJSON(t, srv, http.MethodGet, "/api/v1/teachers/2000/promo-codes", nil, teacherH)
-	if listResp.StatusCode != http.StatusOK {
-		t.Errorf("GetTeacherPromoCodes: status = %d, want 200", listResp.StatusCode)
-	}
-	listResp.Body.Close()
-
-	// Student creates subscription with promo code
-	subResp := doJSON(t, srv, http.MethodPost, "/api/v1/users/2001/subscriptions",
-		map[string]any{"type": "promo", "promo_code": "FLOW2024"}, studentH)
-	if subResp.StatusCode != http.StatusCreated {
-		t.Errorf("CreateSubscription: status = %d, want 201", subResp.StatusCode)
-	}
-	subResp.Body.Close()
-}
-
 // ── Payment invoice ───────────────────────────────────────────────────────────
 
 func TestE2E_CreatePaymentInvoice(t *testing.T) {
@@ -737,13 +658,26 @@ func TestE2E_TeacherStudents(t *testing.T) {
 	doJSON(t, srv, http.MethodPatch, "/api/v1/users/4000",
 		map[string]any{"role": "teacher"}, teacherH)
 
-	// Create and activate promo, then student subscribes
-	doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes",
-		map[string]any{"code": "TEACH001", "university_name": "U", "max_activations": 5}, adminH)
-	doJSON(t, srv, http.MethodPost, "/api/v1/teachers/4000/promo-codes",
-		map[string]any{"code": "TEACH001"}, teacherH)
+	// Manager creates corporate purchase → invite link → student subscribes
+	purchaseResp := doJSON(t, srv, http.MethodPost, "/api/v1/users/4000/corporate-purchases",
+		map[string]any{"groups": 1, "semesters": 1}, teacherH)
+	var purchase map[string]any
+	decodeJSON(t, purchaseResp, &purchase)
+	paymentID, _ := purchase["payment_id"].(string)
+
+	// Get the group for this purchase to find the student_link_id
+	groupsResp := doJSON(t, srv, http.MethodGet, "/api/v1/admin/corporate-groups?purchase_id="+paymentID, nil, adminH)
+	var groupsResult map[string]any
+	decodeJSON(t, groupsResp, &groupsResult)
+	groups, _ := groupsResult["data"].([]any)
+	if len(groups) == 0 {
+		t.Fatal("expected at least one corporate group")
+	}
+	group, _ := groups[0].(map[string]any)
+	studentLinkID, _ := group["student_link_id"].(string)
+
 	doJSON(t, srv, http.MethodPost, "/api/v1/users/4001/subscriptions",
-		map[string]any{"type": "promo", "promo_code": "TEACH001"}, studentH)
+		map[string]any{"type": "invite", "invite_link_id": studentLinkID}, studentH)
 
 	// GetStudents
 	studResp := doJSON(t, srv, http.MethodGet, "/api/v1/teachers/4000/students", nil, teacherH)
@@ -1062,24 +996,16 @@ func TestE2E_BadPathParams(t *testing.T) {
 	}
 	resp.Body.Close()
 
-	// Bad teacher_id
-	resp = doJSON(t, srv, http.MethodGet, "/api/v1/teachers/bad/promo-codes", nil, userH)
+	// Bad teacher_id in GetTeacherInviteLinks
+	resp = doJSON(t, srv, http.MethodGet, "/api/v1/teachers/bad/invite-links", nil, userH)
 	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("GetTeacherPromoCodes bad id: status = %d, want 400", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// Bad teacher_id in ActivatePromoCode
-	resp = doJSON(t, srv, http.MethodPost, "/api/v1/teachers/bad/promo-codes",
-		map[string]any{"code": "X"}, userH)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("ActivatePromoCode bad teacher_id: status = %d, want 400", resp.StatusCode)
+		t.Errorf("GetTeacherInviteLinks bad id: status = %d, want 400", resp.StatusCode)
 	}
 	resp.Body.Close()
 
 	// Bad user_id in CreateSubscription
 	resp = doJSON(t, srv, http.MethodPost, "/api/v1/users/bad/subscriptions",
-		map[string]any{"type": "promo", "promo_code": "X"}, userH)
+		map[string]any{"type": "invite", "invite_link_id": "X"}, userH)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("CreateSubscription bad user_id: status = %d, want 400", resp.StatusCode)
 	}
@@ -1095,13 +1021,6 @@ func TestE2E_BadPathParams(t *testing.T) {
 	// GetUsers with admin (valid)
 	resp = doJSON(t, srv, http.MethodGet, "/api/v1/admin/users?limit=bad", nil, adminH)
 	// Should succeed with default limit
-	resp.Body.Close()
-
-	// Admin DeactivatePromoCode for nonexistent code — SQLite UPDATE with no rows returns no error → 200
-	resp = doJSON(t, srv, http.MethodDelete, "/api/v1/admin/promo-codes/NOTEXIST", nil, adminH)
-	if resp.StatusCode != http.StatusOK {
-		t.Errorf("DeactivatePromoCode: status = %d, want 200", resp.StatusCode)
-	}
 	resp.Body.Close()
 }
 
@@ -1144,9 +1063,9 @@ func TestE2E_AdminCreateTheme_And_Mnemonic(t *testing.T) {
 	testResp := doJSON(t, srv, http.MethodPost, "/api/v1/admin/content/tests",
 		map[string]any{
 			"theme_id": themeID, "difficulty": 1, "passing_score": 70,
-			"shuffle_questions": false, "shuffle_answers": false,
+			"shuffle_questions": false,
 			"questions": []map[string]any{
-				{"text": "Q?", "type": "multiple_choice", "correct_answer": "A", "order_num": 1},
+				{"text": "Q?", "correct_answer": "A", "order_num": 1},
 			},
 		}, adminH)
 	if testResp.StatusCode != http.StatusCreated {
@@ -1259,37 +1178,12 @@ func TestE2E_Admin_BadRequests(t *testing.T) {
 
 	adminH := map[string]string{"X-Admin-Token": testAdminToken}
 
-	// CreatePromoCode: missing code
-	resp := doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes",
-		map[string]any{"university_name": "U", "max_activations": 5}, adminH)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("CreatePromoCode missing code: status = %d, want 400", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// CreatePromoCode: bad max_activations
-	resp = doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes",
-		map[string]any{"code": "X", "university_name": "U", "max_activations": 0}, adminH)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("CreatePromoCode zero max_activations: status = %d, want 400", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// CreatePromoCode: bad expires_at format
-	expiresStr := "not-a-date"
-	resp = doJSON(t, srv, http.MethodPost, "/api/v1/admin/promo-codes",
-		map[string]any{"code": "X2", "university_name": "U", "max_activations": 5, "expires_at": expiresStr}, adminH)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("CreatePromoCode bad expires_at: status = %d, want 400", resp.StatusCode)
-	}
-	resp.Body.Close()
-
 	// CreateModule: invalid JSON
 	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/admin/content/modules",
 		bytes.NewBufferString("notjson"))
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("X-Admin-Token", testAdminToken)
-	resp, _ = http.DefaultClient.Do(req)
+	resp, _ := http.DefaultClient.Do(req)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("CreateModule bad JSON: status = %d, want 400", resp.StatusCode)
 	}
@@ -1331,7 +1225,7 @@ func TestE2E_Admin_BadRequests(t *testing.T) {
 	// CreateTest: missing theme_id
 	resp = doJSON(t, srv, http.MethodPost, "/api/v1/admin/content/tests",
 		map[string]any{"difficulty": 1, "passing_score": 70,
-			"questions": []map[string]any{{"text": "Q", "type": "multiple_choice", "correct_answer": "A", "order_num": 1}}},
+			"questions": []map[string]any{{"text": "Q", "correct_answer": "A", "order_num": 1}}},
 		adminH)
 	if resp.StatusCode != http.StatusBadRequest {
 		t.Errorf("CreateTest missing theme_id: status = %d, want 400", resp.StatusCode)
@@ -1542,38 +1436,6 @@ func TestE2E_Admin_CreateModule_MissingName(t *testing.T) {
 	resp.Body.Close()
 }
 
-// ── ActivatePromoCode: missing code in body ───────────────────────────────────
-
-func TestE2E_ActivatePromoCode_Validation(t *testing.T) {
-	srv := newTestServer(t)
-	defer srv.Close()
-
-	teacherH := map[string]string{"X-Telegram-User-Id": "9010"}
-	doJSON(t, srv, http.MethodPost, "/api/v1/users",
-		map[string]any{"telegram_id": 9010, }, teacherH)
-	doJSON(t, srv, http.MethodPatch, "/api/v1/users/9010",
-		map[string]any{"role": "teacher"}, teacherH)
-
-	// ActivatePromoCode: invalid JSON body
-	req, _ := http.NewRequest(http.MethodPost, srv.URL+"/api/v1/teachers/9010/promo-codes",
-		bytes.NewBufferString("notjson"))
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("X-Telegram-User-Id", "9010")
-	resp, _ := http.DefaultClient.Do(req)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("ActivatePromoCode bad JSON: status = %d, want 400", resp.StatusCode)
-	}
-	resp.Body.Close()
-
-	// ActivatePromoCode: empty code
-	resp = doJSON(t, srv, http.MethodPost, "/api/v1/teachers/9010/promo-codes",
-		map[string]any{"code": ""}, teacherH)
-	if resp.StatusCode != http.StatusBadRequest {
-		t.Errorf("ActivatePromoCode empty code: status = %d, want 400", resp.StatusCode)
-	}
-	resp.Body.Close()
-}
-
 // ── UpdateUser: settings + invalid JSON ───────────────────────────────────────
 
 func TestE2E_UpdateUser_InvalidJSON(t *testing.T) {
@@ -1646,10 +1508,9 @@ func TestE2E_FullStudyFlow_GetModuleProgress(t *testing.T) {
 	doJSON(t, srv, http.MethodPost, "/api/v1/admin/content/tests",
 		map[string]any{
 			"theme_id": themeID, "difficulty": 1, "passing_score": 50,
-			"shuffle_questions": false, "shuffle_answers": false,
+			"shuffle_questions": false,
 			"questions": []map[string]any{
-				{"id": 1, "text": "Q?", "type": "multiple_choice",
-					"options": []string{"A", "B"}, "correct_answer": "A", "order_num": 1},
+				{"id": 1, "text": "Q?", "correct_answer": "A", "order_num": 1},
 			},
 		}, adminH)
 
@@ -1719,24 +1580,6 @@ func TestE2E_GetModuleThemes_WithThemes(t *testing.T) {
 		"/api/v1/content/modules/"+itoa(modID)+"/themes?user_id=9200", nil, userH)
 	if resp.StatusCode != http.StatusOK {
 		t.Errorf("GetModuleThemes with themes: status = %d, want 200", resp.StatusCode)
-	}
-	resp.Body.Close()
-}
-
-// ── GetTeacherPromoCodes: student is not a teacher ────────────────────────────
-
-func TestE2E_GetTeacherPromoCodes_NotTeacher(t *testing.T) {
-	srv := newTestServer(t)
-	defer srv.Close()
-
-	userH := map[string]string{"X-Telegram-User-Id": "9300"}
-	doJSON(t, srv, http.MethodPost, "/api/v1/users",
-		map[string]any{"telegram_id": 9300, }, userH)
-
-	// Student tries to get promo codes — should fail with forbidden
-	resp := doJSON(t, srv, http.MethodGet, "/api/v1/teachers/9300/promo-codes", nil, userH)
-	if resp.StatusCode != http.StatusForbidden {
-		t.Errorf("GetTeacherPromoCodes not teacher: status = %d, want 403", resp.StatusCode)
 	}
 	resp.Body.Close()
 }

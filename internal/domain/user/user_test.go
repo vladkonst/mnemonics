@@ -12,6 +12,7 @@ func TestNewRole(t *testing.T) {
 	}{
 		{"student", false},
 		{"teacher", false},
+		{"manager", false},
 		{"admin", true},
 		{"", true},
 	}
@@ -63,12 +64,16 @@ func TestNewSubscriptionStatus(t *testing.T) {
 func TestUser_IsTeacher(t *testing.T) {
 	student := &User{Role: RoleStudent}
 	teacher := &User{Role: RoleTeacher}
+	manager := &User{Role: RoleManager}
 
 	if student.IsTeacher() {
 		t.Error("student.IsTeacher() should be false")
 	}
 	if !teacher.IsTeacher() {
 		t.Error("teacher.IsTeacher() should be true")
+	}
+	if !manager.IsTeacher() {
+		t.Error("manager.IsTeacher() should be true")
 	}
 }
 

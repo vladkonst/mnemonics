@@ -18,6 +18,10 @@ const resourcePath = (resource: string): string => {
     tests: 'content/tests',
     promo_codes: 'promo-codes',
     users: 'users',
+    feedback: 'feedback',
+    invite_links: 'invite-links',
+    corporate_purchases: 'corporate-purchases',
+    corporate_groups: 'corporate-groups',
   };
   return map[resource] || resource;
 };
@@ -26,6 +30,7 @@ const resourcePath = (resource: string): string => {
 const idField = (resource: string): string => {
   if (resource === 'promo_codes') return 'code';
   if (resource === 'users') return 'telegram_id';
+  if (resource === 'corporate_purchases') return 'payment_id';
   return 'id';
 };
 
@@ -39,6 +44,15 @@ const dataProvider: DataProvider = {
   getList: async (resource, params) => {
     const path = resourcePath(resource);
     let url = `${API_BASE}/${path}`;
+
+    // Teacher students: GET /api/v1/admin/users/{teacher_id}/students
+    if (resource === 'teacher_students') {
+      const teacherID = params.filter?.teacher_id;
+      if (!teacherID) return { data: [], total: 0 };
+      const { json } = await httpClient(`${API_BASE}/users/${teacherID}/students`);
+      const records = (json.data || []).map((r: any) => withId('users', r));
+      return { data: records, total: json.total ?? records.length };
+    }
 
     // Users endpoint supports server-side pagination
     if (resource === 'users') {
@@ -124,7 +138,7 @@ const dataProvider: DataProvider = {
   delete: async (resource, params) => {
     const path = resourcePath(resource);
     await httpClient(`${API_BASE}/${path}/${params.id}`, { method: 'DELETE' });
-    return { data: { id: params.id } as any };
+    return { data: params.previousData || { id: params.id } } as any;
   },
 
   deleteMany: async (resource, params) => {

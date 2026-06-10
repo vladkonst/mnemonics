@@ -7,7 +7,6 @@ import (
 
 	"github.com/vladkonst/mnemonics/internal/domain/content"
 	"github.com/vladkonst/mnemonics/internal/domain/progress"
-	"github.com/vladkonst/mnemonics/internal/domain/subscription"
 	"github.com/vladkonst/mnemonics/internal/domain/user"
 	"github.com/vladkonst/mnemonics/internal/repository/sqlite"
 	"github.com/vladkonst/mnemonics/pkg/apperrors"
@@ -388,110 +387,6 @@ func TestProgressRepository(t *testing.T) {
 		}
 		if count != 1 {
 			t.Errorf("expected 1 completed, got %d", count)
-		}
-	})
-}
-
-func TestPromoCodeRepository(t *testing.T) {
-	ctx := context.Background()
-	db, err := sqlite.Open(ctx, ":memory:")
-	if err != nil {
-		t.Fatalf("open db: %v", err)
-	}
-	defer db.Close()
-
-	// Create teacher user first (FK constraint)
-	userRepo := sqlite.NewUserRepo(db)
-	teacher := &user.User{
-		TelegramID: 999,
-		Role: user.RoleTeacher, SubscriptionStatus: user.SubscriptionStatusInactive,
-		Language: "ru", Timezone: "UTC", NotificationsEnabled: true,
-	}
-	if err := userRepo.Create(ctx, teacher); err != nil {
-		t.Fatalf("Create teacher: %v", err)
-	}
-
-	repo := sqlite.NewPromoCodeRepo(db)
-
-	t.Run("Create and GetByCode", func(t *testing.T) {
-		p := &subscription.PromoCode{
-			Code:           "TEST123",
-			UniversityName: "Test University",
-			MaxActivations: 10,
-			Remaining:      10,
-			Status:         subscription.PromoCodeStatusPending,
-		}
-
-		if err := repo.Create(ctx, p); err != nil {
-			t.Fatalf("Create: %v", err)
-		}
-
-		got, err := repo.GetByCode(ctx, "TEST123")
-		if err != nil {
-			t.Fatalf("GetByCode: %v", err)
-		}
-		if got.UniversityName != "Test University" {
-			t.Errorf("expected Test University, got %s", got.UniversityName)
-		}
-		if got.Status != subscription.PromoCodeStatusPending {
-			t.Errorf("expected pending status, got %s", got.Status)
-		}
-	})
-
-	t.Run("Activate (Activate domain method + Update)", func(t *testing.T) {
-		got, err := repo.GetByCode(ctx, "TEST123")
-		if err != nil {
-			t.Fatalf("GetByCode: %v", err)
-		}
-
-		if err := got.Activate(teacher.TelegramID); err != nil {
-			t.Fatalf("domain Activate: %v", err)
-		}
-
-		if err := repo.Update(ctx, got); err != nil {
-			t.Fatalf("Update: %v", err)
-		}
-
-		updated, err := repo.GetByCode(ctx, "TEST123")
-		if err != nil {
-			t.Fatalf("GetByCode: %v", err)
-		}
-		if updated.Status != subscription.PromoCodeStatusActive {
-			t.Errorf("expected active status, got %s", updated.Status)
-		}
-		if updated.TeacherID == nil || *updated.TeacherID != teacher.TelegramID {
-			t.Errorf("expected teacher ID %d", teacher.TelegramID)
-		}
-	})
-
-	t.Run("GetByTeacherID", func(t *testing.T) {
-		codes, err := repo.GetByTeacherID(ctx, teacher.TelegramID)
-		if err != nil {
-			t.Fatalf("GetByTeacherID: %v", err)
-		}
-		if len(codes) == 0 {
-			t.Error("expected at least one promo code")
-		}
-	})
-
-	t.Run("Deactivate", func(t *testing.T) {
-		if err := repo.Deactivate(ctx, "TEST123"); err != nil {
-			t.Fatalf("Deactivate: %v", err)
-		}
-
-		got, err := repo.GetByCode(ctx, "TEST123")
-		if err != nil {
-			t.Fatalf("GetByCode after deactivate: %v", err)
-		}
-		if got.Status != subscription.PromoCodeStatusDeactivated {
-			t.Errorf("expected deactivated status, got %s", got.Status)
-		}
-	})
-
-	t.Run("GetByCode not found", func(t *testing.T) {
-		_, err := repo.GetByCode(ctx, "NONEXISTENT")
-		if !apperrors.IsNotFound(err) {
-			t.Errorf("expected ErrNotFound, got %v", err)
 		}
 	})
 }

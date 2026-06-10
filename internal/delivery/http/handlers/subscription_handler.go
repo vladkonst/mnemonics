@@ -21,66 +21,12 @@ func NewSubscriptionHandler(uc *subscriptionUC.UseCase) *SubscriptionHandler {
 	return &SubscriptionHandler{uc: uc}
 }
 
-// activatePromoCodeRequest is the JSON body for POST /api/v1/teachers/{teacher_id}/promo-codes.
-type activatePromoCodeRequest struct {
-	Code string `json:"code"`
-}
-
-// ActivatePromoCode handles POST /api/v1/teachers/{teacher_id}/promo-codes.
-func (h *SubscriptionHandler) ActivatePromoCode(w http.ResponseWriter, r *http.Request) {
-	teacherID, err := parseTeacherID(r)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-	if !middleware.RequireOwner(w, r, teacherID) {
-		return
-	}
-
-	var req activatePromoCodeRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "invalid JSON body")
-		return
-	}
-	if req.Code == "" {
-		respond.Error(w, http.StatusBadRequest, "bad_request", "code is required")
-		return
-	}
-
-	promo, err := h.uc.ActivatePromoCode(r.Context(), teacherID, req.Code)
-	if err != nil {
-		respond.ErrorFrom(w, err)
-		return
-	}
-
-	respond.JSON(w, http.StatusOK, promo)
-}
-
-// GetTeacherPromoCodes handles GET /api/v1/teachers/{teacher_id}/promo-codes.
-func (h *SubscriptionHandler) GetTeacherPromoCodes(w http.ResponseWriter, r *http.Request) {
-	teacherID, err := parseTeacherID(r)
-	if err != nil {
-		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
-		return
-	}
-
-	promoCodes, err := h.uc.GetTeacherPromoCodes(r.Context(), teacherID)
-	if err != nil {
-		respond.ErrorFrom(w, err)
-		return
-	}
-
-	respond.JSON(w, http.StatusOK, map[string]interface{}{
-		"promo_codes": promoCodes,
-	})
-}
-
 // createSubscriptionRequest is the JSON body for POST /api/v1/users/{user_id}/subscriptions.
 type createSubscriptionRequest struct {
-	Type      string `json:"type"` // "promo" or "payment"
-	PromoCode string `json:"promo_code"`
-	PaymentID string `json:"payment_id"`
-	Plan      string `json:"plan"`
+	Type         string `json:"type"` // "invite" or "payment"
+	InviteLinkID string `json:"invite_link_id"`
+	PaymentID    string `json:"payment_id"`
+	Plan         string `json:"plan"`
 }
 
 // CreateSubscription handles POST /api/v1/users/{user_id}/subscriptions.
@@ -101,19 +47,6 @@ func (h *SubscriptionHandler) CreateSubscription(w http.ResponseWriter, r *http.
 	}
 
 	switch req.Type {
-	case "promo":
-		if req.PromoCode == "" {
-			respond.Error(w, http.StatusBadRequest, "bad_request", "promo_code is required for type=promo")
-			return
-		}
-		sub, err := h.uc.CreatePromoSubscription(r.Context(), userID, req.PromoCode)
-		if err != nil {
-			respond.ErrorFrom(w, err)
-			return
-		}
-		w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d/subscriptions/%s", userID, sub.PaymentID))
-		respond.JSON(w, http.StatusCreated, sub)
-
 	case "payment":
 		if req.PaymentID == "" {
 			respond.Error(w, http.StatusBadRequest, "bad_request", "payment_id is required for type=payment")
@@ -131,9 +64,42 @@ func (h *SubscriptionHandler) CreateSubscription(w http.ResponseWriter, r *http.
 		w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d/subscriptions/%s", userID, sub.PaymentID))
 		respond.JSON(w, http.StatusCreated, sub)
 
+	case "invite":
+		if req.InviteLinkID == "" {
+			respond.Error(w, http.StatusBadRequest, "bad_request", "invite_link_id is required for type=invite")
+			return
+		}
+		sub, err := h.uc.CreateInviteSubscription(r.Context(), userID, req.InviteLinkID)
+		if err != nil {
+			respond.ErrorFrom(w, err)
+			return
+		}
+		w.Header().Set("Location", fmt.Sprintf("/api/v1/users/%d/subscriptions/%s", userID, sub.PaymentID))
+		respond.JSON(w, http.StatusCreated, sub)
+
 	default:
-		respond.Error(w, http.StatusBadRequest, "bad_request", "type must be 'promo' or 'payment'")
+		respond.Error(w, http.StatusBadRequest, "bad_request", "type must be 'invite' or 'payment'")
 	}
+}
+
+// GetTeacherInviteLinks handles GET /api/v1/teachers/{teacher_id}/invite-links.
+func (h *SubscriptionHandler) GetTeacherInviteLinks(w http.ResponseWriter, r *http.Request) {
+	teacherID, err := parseTeacherID(r)
+	if err != nil {
+		respond.Error(w, http.StatusBadRequest, "bad_request", err.Error())
+		return
+	}
+	if !middleware.RequireOwner(w, r, teacherID) {
+		return
+	}
+
+	links, err := h.uc.GetTeacherInviteLinks(r.Context(), teacherID)
+	if err != nil {
+		respond.ErrorFrom(w, err)
+		return
+	}
+
+	respond.JSON(w, http.StatusOK, map[string]interface{}{"invite_links": links})
 }
 
 // parseTeacherID extracts and validates the teacher_id path parameter.

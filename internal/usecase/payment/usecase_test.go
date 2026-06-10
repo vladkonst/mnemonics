@@ -44,6 +44,7 @@ func (m *mockUserRepo) Exists(ctx context.Context, id int64) (bool, error) {
 func (m *mockUserRepo) GetAll(ctx context.Context, role, subStatus string, limit, offset int) ([]*user.User, int, error) {
 	return nil, 0, nil
 }
+func (m *mockUserRepo) Delete(ctx context.Context, id int64) error { return nil }
 
 type mockSubRepo struct {
 	data      map[int64]*subscription.Subscription
@@ -98,12 +99,15 @@ type mockNotificationService struct{}
 func (m *mockNotificationService) Send(ctx context.Context, id int64, msg string) error {
 	return nil
 }
+func (m *mockNotificationService) SendDocument(_ context.Context, _ int64, _ string, _ []byte, _ string) error {
+	return nil
+}
 
 func newUC() (*UseCase, *mockUserRepo, *mockSubRepo) {
 	userRepo := newMockUserRepo()
 	subRepo := newMockSubRepo()
 	paymentSvc := &mockPaymentService{invoiceID: "inv_123", paymentURL: "https://pay.example.com", amount: 990}
-	return NewUseCase(userRepo, subRepo, paymentSvc, &mockNotificationService{}), userRepo, subRepo
+	return NewUseCase(userRepo, subRepo, paymentSvc, &mockNotificationService{}, nil, nil, ""), userRepo, subRepo
 }
 
 func addUser(repo *mockUserRepo, id int64) {

@@ -6,17 +6,19 @@ import "fmt"
 type Role string
 
 const (
-	RoleStudent Role = "student"
-	RoleTeacher Role = "teacher"
+	RoleUnknown  Role = "unknown"
+	RoleStudent  Role = "student"
+	RoleTeacher  Role = "teacher"
+	RoleManager  Role = "manager"
 )
 
 // NewRole creates a Role from a string, returning an error for invalid values.
 func NewRole(s string) (Role, error) {
 	switch Role(s) {
-	case RoleStudent, RoleTeacher:
+	case RoleUnknown, RoleStudent, RoleTeacher, RoleManager:
 		return Role(s), nil
 	default:
-		return "", fmt.Errorf("invalid role %q: must be student or teacher", s)
+		return "", fmt.Errorf("invalid role %q: must be unknown, student, teacher or manager", s)
 	}
 }
 
