@@ -1,4 +1,5 @@
 -- +goose Up
+-- +goose NO TRANSACTION
 -- Remove promo_codes entity. Quota tracking moves into invite_links.max_activations.
 -- teacher_promo_students.promo_code renamed to join_ref (drops FK to promo_codes).
 
@@ -35,6 +36,7 @@ DROP TABLE IF EXISTS promo_codes;
 PRAGMA foreign_keys = ON;
 
 -- +goose Down
+-- +goose NO TRANSACTION
 PRAGMA foreign_keys = OFF;
 
 -- Restore promo_codes (empty).
